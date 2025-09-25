@@ -117,7 +117,7 @@ Those new to the Rhea/Phoebe ODE may wonder the best methods for converting disc
    - Use [DiscJuggler](https://en.wikipedia.org/wiki/DiscJuggler) to dump to `CDI` format.
 
 #### Troubleshooting
-Newer versions of Windows may cause issues with the DAEMON Tools and CloneCD/DiscJuggler method. If conversion with all options listed above fail to produce a working disc image, the following process can be followed to build a working `CCD/IMG/SUB` (or `CDI`) disc image.
+Newer versions of Windows may cause issues with the DAEMON Tools and CloneCD/DiscJuggler method. If conversion with all options listed above fails to produce a working disc image, the following process can be followed to build a working `CCD/IMG/SUB` (or `CDI`) disc image.
 1. Provision a Windows XP virtual machine using a platform like [VMware](https://www.vmware.com/products/desktop-hypervisor/workstation-and-fusion) or [VirtualBox](https://www.virtualbox.org/wiki/Downloads).
 3. Inside the VM, use a specific version of DAEMON Tools ([v3.47](https://archive.org/details/daemon-tools-347)) to mount the source image.
 4. Use CloneCD to dump to `CCD/IMG/SUB`, or a specific version of DiscJuggler ([v6.00.1400](https://archive.org/details/disc-juggler-pro-v-6.00.1400)) to dump to `CDI`.

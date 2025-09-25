@@ -221,6 +221,7 @@ While users of a [Gamer's Cartridge](https://ppcenter.webou.net/satcart/) can ac
 Whether using RmenuKai strictly via SD card, or using it via SD card coupled with a Gamer's Cartridge, Rhea/Phoebe Sorter supports an instance of legacy RMENU that can live alongside RmenuKai and be launched directly from the game list menu.
 
 1. Create a folder on the root of the SD card, giving it whatever name should appear in the RmenuKai game list (e.g., `RMENU`).
+2. Ensure all of the [RMENU files](https://gdemu.wordpress.com/links/) are present in this newly created folder.
 3. Drag the SD card onto `orbital_organizer.exe` and watch the status messages until processing is complete.
    - A message will appear informing the user that a secondary instance of RMENU was detected on their SD card, at which time they'll be asked if they'd like to update said instance with the latest game list data. Choosing to do so will result in that instance of legacy RMENU containing an up-to-date list of disc images for selection.
 

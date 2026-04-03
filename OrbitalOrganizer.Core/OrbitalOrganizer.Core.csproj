@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <Version>2.0.0</Version>
+    <DebugType>none</DebugType>
+    <DebugSymbols>false</DebugSymbols>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="DiscUtils.Iso9660" Version="0.16.13" />
+    <PackageReference Include="ByteSize" Version="2.1.2" />
+    <PackageReference Include="SharpCompress" Version="0.33.0" />
+  </ItemGroup>
+
+  <!-- Native libchdr for dev builds (F5 / dotnet run on Windows).
+       Release publish uses libchdr.targets imported by the app projects. -->
+  <ItemGroup Condition="'$(RuntimeIdentifier)' == ''">
+    <Content Include="runtimes\win-x64\native\libchdr.dll" Condition="Exists('runtimes\win-x64\native\libchdr.dll')">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>Never</CopyToPublishDirectory>
+      <Link>libchdr.dll</Link>
+    </Content>
+  </ItemGroup>
+
+</Project>

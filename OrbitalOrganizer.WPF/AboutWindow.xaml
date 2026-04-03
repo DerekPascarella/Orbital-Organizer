@@ -1,0 +1,22 @@
+<Window x:Class="OrbitalOrganizer.AboutWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="About" SizeToContent="WidthAndHeight" ResizeMode="NoResize"
+        WindowStartupLocation="CenterOwner">
+    <StackPanel Margin="15,8">
+        <TextBlock FontWeight="Bold" FontSize="16">
+            <Run Text="Orbital Organizer"/>
+            <Run x:Name="VersionRun"/>
+        </TextBlock>
+        <TextBlock Margin="0,4,0,0">by Derek Pascarella (ateam)</TextBlock>
+        <TextBlock Margin="0,10,0,0" TextWrapping="Wrap">An SD card management tool for the SEGA Saturn ODEs Rhea and Phoebe.</TextBlock>
+        <TextBlock Margin="0,10,0,0">Documentation:</TextBlock>
+        <TextBlock Margin="0,2,0,0">
+            <Hyperlink Click="Hyperlink_Click">https://github.com/DerekPascarella/OrbitalOrganizer</Hyperlink>
+        </TextBlock>
+        <Button Content="Check for Updates" Click="CheckForUpdatesButton_Click"
+                Margin="0,15,0,0" HorizontalAlignment="Right"
+                Padding="12,0" Height="28"
+                VerticalContentAlignment="Center"/>
+    </StackPanel>
+</Window>

@@ -1,0 +1,21 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="OrbitalOrganizer.AssignFolderWindow"
+        Title="Assign Folder Path" SizeToContent="Height" Width="400"
+        WindowStartupLocation="CenterOwner" CanResize="False">
+    <StackPanel Margin="15">
+        <TextBlock Text="{Binding SelectionInfo}" Margin="0,0,0,15" FontWeight="Bold"/>
+
+        <TextBlock Text="Folder Path:" Margin="0,0,0,5"/>
+        <AutoCompleteBox x:Name="FolderInput"
+                         ItemsSource="{Binding KnownFolders}"
+                         Text="{Binding FolderPath, Mode=TwoWay}"
+                         FilterMode="Contains"
+                         MaxDropDownHeight="200"/>
+
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,20,0,0">
+            <Button Content="OK" Click="OkButton_Click" Width="80" Padding="15,8" Margin="0,0,10,0"/>
+            <Button Content="Cancel" Click="CancelButton_Click" Width="80" Padding="15,8"/>
+        </StackPanel>
+    </StackPanel>
+</Window>

@@ -1,0 +1,23 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d" d:DesignWidth="500" d:DesignHeight="200"
+        x:Class="OrbitalOrganizer.UpdateWizardWindow"
+        Title="Updating Orbital Organizer" SizeToContent="Height" Width="500"
+        CanResize="False"
+        WindowStartupLocation="CenterOwner">
+    <StackPanel Margin="20">
+        <TextBlock x:Name="StatusText" TextWrapping="Wrap" Margin="0,0,0,10"/>
+
+        <ProgressBar x:Name="DownloadProgress" Height="22" Margin="0,0,0,5" Minimum="0" Maximum="100"/>
+
+        <TextBlock x:Name="SpeedText" Margin="0,0,0,5" Foreground="Gray"/>
+        <TextBlock x:Name="SizeText" Foreground="Gray"/>
+
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,20,0,0">
+            <Button x:Name="CancelDownloadButton" Content="Cancel" Click="CancelDownloadButton_Click" Width="90" Height="28" Margin="0,0,10,0"/>
+            <Button x:Name="InstallButton" Content="Install Now" Click="InstallButton_Click" Width="90" Height="28" IsVisible="False"/>
+        </StackPanel>
+    </StackPanel>
+</Window>

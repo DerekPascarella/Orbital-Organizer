@@ -40,7 +40,7 @@ Please note that Rhea/Phoebe SD cards must be formatted as FAT32.
 Orbital Organizer is currently at version [2.0.0](https://github.com/DerekPascarella/Orbital-Organizer/releases/tag/2.0.0).
 
 ## Changelog
-- **Version 2.0.0 (2026-03-XX)**
+- **Version 2.0.0 (2026-04-03)**
   - Complete rewrite from console application to cross-platform GUI (Windows, macOS, Linux).
   - RMENU and RmenuKai now bundled, so users no longer need to source either themselves.
   - Disc images can now be assigned to more than one virtual folder path.
@@ -48,6 +48,7 @@ Orbital Organizer is currently at version [2.0.0](https://github.com/DerekPascar
   - CUE-based disc images are automatically converted to CloneCD format (CCD/IMG/SUB) when saved to the SD card.
   - CHD disc images are supported and automatically decompressed to CUE/BIN before conversion to CCD/IMG/SUB.
   - New `IP.BIN` header parsing technique implemented for improved metadata accuracy, verified against all 2,455 known Saturn disc images catalogued by [Redump](http://redump.org/discs/system/ss/).
+  - Auto-update functionality added for Windows and Linux builds (macOS present noy supported).
 - **Version 1.8 (2025-06-05)**
   - Game labels, virtual folder paths, and disc numbers can now be modified in `GameList.txt` before processing SD card instead of solely by modifying metadata text files (e.g., `Name.txt`, `Folder.txt`) inside of numbered folders.
 - **Version 1.7 (2025-05-12)**

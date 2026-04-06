@@ -37,9 +37,11 @@ Please note that Rhea/Phoebe SD cards must be formatted as FAT32.
   - [Third-Party Components](#third-party-components)
 
 ## Current Version
-Orbital Organizer is currently at version [2.0.0](https://github.com/DerekPascarella/Orbital-Organizer/releases/tag/2.0.0).
+Orbital Organizer is currently at version [2.0.1](https://github.com/DerekPascarella/Orbital-Organizer/releases/tag/2.0.1).
 
 ## Changelog
+- **Version 2.0.1 (2026-04-05)**
+  - CUE to CCD conversion for Mode 2 discs was broken, now fixed (see [Issue 2](https://github.com/DerekPascarella/Orbital-Organizer/issues/2)).
 - **Version 2.0.0 (2026-04-03)**
   - Complete rewrite from console application to cross-platform GUI (Windows, macOS, Linux).
   - RMENU and RmenuKai now bundled, so users no longer need to source either themselves.

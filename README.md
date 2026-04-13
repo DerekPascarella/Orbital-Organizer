@@ -196,7 +196,7 @@ Clicking the **info** button next to a game entry opens a dialog displaying meta
 The **Menu Type** setting controls which menu system Orbital Organizer targets when building the SD card. Three options are available:
 
 - **RmenuKai** - Targets [RmenuKai](https://ppcenter.webou.net/pskai/) by cafe-alpha. This enables virtual folder support and alternative folder paths, allowing games to be organized into categories without physically moving files. Orbital Organizer currently ships with RmenuKai v6.545.
-- **RMENU** - Targets the legacy RMENU by [CyberWarriorX](https://github.com/cyberwarriorx). Games appear in a flat list with no folder support. Orbital Organizer currently ships with RMENU v0.2.
+- **RMENU** - Targets the legacy RMENU by neuroacid. Games appear in a flat list with no folder support. Orbital Organizer currently ships with RMENU v0.2.
 - **Both** - Targets RmenuKai as the primary menu in folder `01`, with a secondary instance of legacy RMENU in its own numbered folder that can be launched directly from the RmenuKai game list. The secondary RMENU instance does not reside in folder `01`. Instead, it occupies a numbered folder based on its position in the game list. This is useful for niche cases such as launching JHL loader cheats via legacy RMENU, and is commonly used alongside a [Gamer's Cartridge](https://ppcenter.webou.net/satcart/), though there are several other reasons a user may want both menu systems available.
 
 Orbital Organizer ships with a bundled version of RmenuKai. To update to a newer release, replace the `0.BIN` file in the `tools\rmenukai` folder with the updated version from the [RmenuKai website](https://ppcenter.webou.net/pskai/). The new version will be used the next time changes are saved to the SD card.

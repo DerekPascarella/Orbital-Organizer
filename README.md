@@ -107,8 +107,6 @@ Orbital Organizer is currently at version [2.0.1](https://github.com/DerekPascar
 | CHD | `.chd` | Decompressed to CUE/BIN then converted to CCD/IMG/SUB |
 | Compressed | `.zip`, `.7z`, `.rar` | Archives containing any of the above formats |
 
-On Windows, CUE-based disc images (including those inside compressed archives) are automatically converted to CloneCD format (CCD/IMG/SUB) when saved to the SD card using the bundled [CUE2CCD](https://segaxtreme.net/resources/cue2ccd.386/) tool. CHD disc images are first decompressed to CUE/BIN using [libchdr](https://github.com/rtissera/libchdr), then converted to CCD/IMG/SUB in the same way. CUE-based and CHD disc images are not supported on macOS or Linux and must be converted to a compatible format (CCD, CDI, or ISO) before adding them.
-
 ## Converting Disc Images to CDI Format
 
 Some modified Sega Saturn games may require conversion to DiscJuggler (CDI) format. This can be accomplished using [DAEMON Tools](https://www.daemon-tools.cc) and [DiscJuggler](https://en.wikipedia.org/wiki/DiscJuggler).
@@ -228,7 +226,7 @@ The GUI design and workflow of Orbital Organizer are inspired by [GD MENU Card M
 For the full license text, see `LICENSE`.
 
 ### RMENU
-RMENU was originally created by [CyberWarriorX](https://github.com/cyberwarriorx). Orbital Organizer rebuilds RMENU ISO images for Rhea/Phoebe compatibility.
+RMENU was originally created by neuroacid. Orbital Organizer rebuilds RMENU ISO images for Rhea/Phoebe compatibility.
 
 ### RmenuKai
 [RmenuKai](https://ppcenter.webou.net/pskai/) was originally created by cafe-alpha. Orbital Organizer supports RmenuKai's virtual folder system and alternative folder paths.

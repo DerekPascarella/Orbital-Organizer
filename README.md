@@ -1,5 +1,5 @@
 # Orbital Organizer
-An SD card management tool for the SEGA Saturn ODEs Rhea and Phoebe.
+<img align="right" src="https://raw.githubusercontent.com/DerekPascarella/Orbital-Organizer/refs/heads/main/screenshots/screenshot.png" width="265">An SD card management tool for the SEGA Saturn ODEs Rhea and Phoebe.
 
 As of version 2.0.0, Orbital Organizer has been completely rewritten from a command-line tool to a cross-platform GUI application.
 

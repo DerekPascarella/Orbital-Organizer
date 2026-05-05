@@ -37,9 +37,12 @@ Please note that Rhea/Phoebe SD cards must be formatted as FAT32.
   - [Third-Party Components](#third-party-components)
 
 ## Current Version
-Orbital Organizer is currently at version [2.0.1](https://github.com/DerekPascarella/Orbital-Organizer/releases/tag/2.0.1).
+Orbital Organizer is currently at version [2.0.2](https://github.com/DerekPascarella/Orbital-Organizer/releases/tag/2.0.2).
 
 ## Changelog
+- **Version 2.0.2 (2026-05-05)**
+  - On macOS, system bar title fixed to read "Orbital Organizer" instead of "Avalonia Application" (see [Issue 4](https://github.com/DerekPascarella/Orbital-Organizer/issues/4)).
+  - Fixed broken auto-updater due to build pipeline version mismatch (see [Issue 5](https://github.com/DerekPascarella/Orbital-Organizer/issues/5)).
 - **Version 2.0.1 (2026-04-05)**
   - CUE to CCD conversion for Mode 2 discs was broken, now fixed (see [Issue 2](https://github.com/DerekPascarella/Orbital-Organizer/issues/2)).
 - **Version 2.0.0 (2026-04-03)**

@@ -92,7 +92,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         _manager.OnFolderLocked = async (path) =>
         {
             var msgBox = MessageBoxManager.GetMessageBoxStandard(
-                "File Locked",
+                "Confirmation",
                 $"The following folder is open in another program:\n\n{path}\n\n" +
                 "Close any programs using it, then click Yes to retry.",
                 ButtonEnum.YesNo, MsBoxIcon.Warning);
@@ -111,7 +111,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             if (readOnlyPath != null)
             {
                 var msgBox = MessageBoxManager.GetMessageBoxStandard(
-                    "Read-Only Settings",
+                    "Information",
                     $"The settings file is marked as read-only:\n\n{readOnlyPath}\n\n" +
                     "Your preferences will not be saved until this is resolved.",
                     ButtonEnum.Ok, MsBoxIcon.Warning);
@@ -338,7 +338,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     private async void ButtonResetTempFolder_Click(object? sender, RoutedEventArgs e)
     {
         var msgBox = MessageBoxManager.GetMessageBoxStandard(
-            "Reset Temporary Folder",
+            "Confirmation",
             "Reset the Temporary Folder path to default?",
             ButtonEnum.YesNo, MsBoxIcon.Question);
         var result = await msgBox.ShowWindowDialogAsync(this);
@@ -632,7 +632,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         try
         {
             var msgBox = MessageBoxManager.GetMessageBoxStandard(
-                "Sort List",
+                "Confirmation",
                 "Your disc images will be automatically sorted in alphanumeric order " +
                 "based on a combination of Folder and Title.\n\nProceed?",
                 ButtonEnum.YesNo, MsBoxIcon.Question);
@@ -669,7 +669,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             if (!SearchInGrid(0, filterText))
             {
                 var msgBox = MessageBoxManager.GetMessageBoxStandard(
-                    "Search", "No matches found.", ButtonEnum.Ok, MsBoxIcon.Info);
+                    "Information", "No matches found.", ButtonEnum.Ok, MsBoxIcon.Info);
                 await msgBox.ShowWindowDialogAsync(this);
             }
         }
@@ -729,7 +729,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         }
 
         var confirmBox = MessageBoxManager.GetMessageBoxStandard(
-            "Save",
+            "Confirmation",
             $"Save changes to \"{_manager.SdCardPath}\" drive?",
             ButtonEnum.YesNo, MsBoxIcon.Question);
 
@@ -779,7 +779,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
                 progressWindow.AllowClose();
                 progressWindow.Close();
 
-                var doneBox = MessageBoxManager.GetMessageBoxStandard("Message", "Done!", ButtonEnum.Ok, MsBoxIcon.Info);
+                var doneBox = MessageBoxManager.GetMessageBoxStandard("Information", "Done!", ButtonEnum.Ok, MsBoxIcon.Info);
                 await doneBox.ShowWindowDialogAsync(this);
 
                 await LoadCard();
@@ -873,7 +873,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         }
 
         var box = MsBox.Avalonia.MessageBoxManager.GetMessageBoxStandard(
-            "Disc Image Info", sb.ToString(), MsBox.Avalonia.Enums.ButtonEnum.Ok, MsBoxIcon.Info);
+            "Information", sb.ToString(), MsBox.Avalonia.Enums.ButtonEnum.Ok, MsBoxIcon.Info);
         await box.ShowWindowDialogAsync(this);
     }
 

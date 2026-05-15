@@ -14,8 +14,10 @@
                          MaxDropDownHeight="200"/>
 
         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,20,0,0">
-            <Button Content="OK" Click="OkButton_Click" Width="80" Padding="15,8" Margin="0,0,10,0"/>
-            <Button Content="Cancel" Click="CancelButton_Click" Width="80" Padding="15,8"/>
+            <Button Content="OK" Click="OkButton_Click" Width="80" Padding="15,8" Margin="0,0,10,0"
+                    ToolTip.Tip="Assign this folder path to the selected item(s)"/>
+            <Button Content="Cancel" Click="CancelButton_Click" Width="80" Padding="15,8"
+                    ToolTip.Tip="Discard changes"/>
         </StackPanel>
     </StackPanel>
 </Window>

@@ -2,6 +2,16 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              x:Class="OrbitalOrganizer.App"
              Name="Orbital Organizer">
+
+    <!-- Override Avalonia's hardcoded "About Avalonia" entry in the macOS app menu.
+         Defining a NativeMenu here suppresses CreateDefaultAppMenu(); the standard
+         Services/Hide/Quit items are still appended automatically. -->
+    <NativeMenu.Menu>
+        <NativeMenu>
+            <NativeMenuItem Header="About Orbital Organizer" Click="AboutMenuItem_Click"/>
+        </NativeMenu>
+    </NativeMenu.Menu>
+
     <Application.Styles>
         <SimpleTheme />
         <StyleInclude Source="avares://Avalonia.Controls.DataGrid/Themes/Simple.xaml"/>

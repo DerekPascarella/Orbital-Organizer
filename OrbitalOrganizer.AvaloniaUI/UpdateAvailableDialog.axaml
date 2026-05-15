@@ -4,7 +4,7 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         mc:Ignorable="d" d:DesignWidth="450" d:DesignHeight="220"
         x:Class="OrbitalOrganizer.UpdateAvailableDialog"
-        Title="Update Available" SizeToContent="Height" Width="450"
+        Title="Information" SizeToContent="Height" Width="450"
         CanResize="False"
         WindowStartupLocation="CenterOwner">
     <Grid Margin="20">
@@ -24,9 +24,12 @@
         </StackPanel>
 
         <StackPanel Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,15,0,0">
-            <Button Content="Skip This Version" Click="SkipButton_Click" Width="120" Height="28" Margin="0,0,10,0"/>
-            <Button Content="Remind Me Later" Click="RemindButton_Click" Width="120" Height="28" Margin="0,0,10,0"/>
-            <Button Content="Update Now" Click="UpdateButton_Click" Width="90" Height="28"/>
+            <Button Content="Skip This Version" Click="SkipButton_Click" Width="120" Height="28" Margin="0,0,10,0"
+                    ToolTip.Tip="Don't notify me again for this version"/>
+            <Button Content="Remind Me Later" Click="RemindButton_Click" Width="120" Height="28" Margin="0,0,10,0"
+                    ToolTip.Tip="Postpone; ask again next launch"/>
+            <Button Content="Update Now" Click="UpdateButton_Click" Width="90" Height="28"
+                    ToolTip.Tip="Download and install the new version"/>
         </StackPanel>
     </Grid>
 </Window>

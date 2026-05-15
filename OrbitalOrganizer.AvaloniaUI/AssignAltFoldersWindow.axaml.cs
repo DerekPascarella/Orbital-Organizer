@@ -137,7 +137,7 @@ public partial class AssignAltFoldersWindow : Window
             if (isDuplicate)
             {
                 var msgBox = MessageBoxManager.GetMessageBoxStandard(
-                    "Duplicate Folder Path",
+                    "Information",
                     "This folder path is already assigned to this disc image.",
                     ButtonEnum.Ok, MsBoxIcon.Info);
                 await msgBox.ShowWindowDialogAsync(this);

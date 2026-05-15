@@ -4,7 +4,7 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         mc:Ignorable="d" d:DesignWidth="600" d:DesignHeight="400"
         x:Class="OrbitalOrganizer.LockedFilesDialog"
-        Title="Files In Use" Height="400" Width="600"
+        Title="Error" Height="400" Width="600"
         MinHeight="250" MinWidth="400"
         WindowStartupLocation="CenterOwner">
   <Grid Margin="10">
@@ -31,8 +31,10 @@
     </ListBox>
 
     <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right">
-      <Button Content="Retry" Width="80" Padding="15,8" Margin="0,0,10,0" Click="RetryButton_Click" IsDefault="True"/>
-      <Button Content="Cancel" Width="80" Padding="15,8" Click="CancelButton_Click"/>
+      <Button Content="Retry" Width="80" Padding="15,8" Margin="0,0,10,0" Click="RetryButton_Click" IsDefault="True"
+              ToolTip.Tip="Re-check the listed files and try again"/>
+      <Button Content="Cancel" Width="80" Padding="15,8" Click="CancelButton_Click"
+              ToolTip.Tip="Cancel save and return to the main window"/>
     </StackPanel>
   </Grid>
 </Window>

@@ -14,10 +14,12 @@
                    Text="In order for Rhea/Phoebe to properly handle out-of-region games, please select your console's region."/>
 
         <ComboBox x:Name="RegionComboBox" Grid.Row="1" Margin="0,0,0,15"
-                  SelectedIndex="0" HorizontalAlignment="Stretch"/>
+                  SelectedIndex="0" HorizontalAlignment="Stretch"
+                  ToolTip="Your console's hardware region"/>
 
         <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right">
-            <Button Content="OK" Click="OkButton_Click" Width="90" Height="28" IsDefault="True"/>
+            <Button Content="OK" Click="OkButton_Click" Width="90" Height="28" IsDefault="True"
+                    ToolTip="Save and continue"/>
         </StackPanel>
     </Grid>
 </Window>

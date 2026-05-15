@@ -88,7 +88,7 @@ public partial class MainWindow : Window, GongSolutions.Wpf.DragDrop.IDropTarget
             var result = MessageBox.Show(this,
                 $"The following folder is open in another program:\n\n{path}\n\n" +
                 "Close any programs using it, then click Yes to retry.",
-                "File Locked", MessageBoxButton.YesNo, MessageBoxImage.Warning);
+                "Confirmation", MessageBoxButton.YesNo, MessageBoxImage.Warning);
             return Task.FromResult(result == MessageBoxResult.Yes);
         };
 
@@ -109,7 +109,7 @@ public partial class MainWindow : Window, GongSolutions.Wpf.DragDrop.IDropTarget
                 MessageBox.Show(this,
                     $"The settings file is marked as read-only:\n\n{readOnlyPath}\n\n" +
                     "Your preferences will not be saved until this is resolved.",
-                    "Read-Only Settings", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    "Information", MessageBoxButton.OK, MessageBoxImage.Warning);
             }
         }
         catch { }
@@ -303,7 +303,7 @@ public partial class MainWindow : Window, GongSolutions.Wpf.DragDrop.IDropTarget
     {
         var result = MessageBox.Show(
             "Reset the Temporary Folder path to default?",
-            "Reset Temporary Folder",
+            "Confirmation",
             MessageBoxButton.YesNo, MessageBoxImage.Question);
         if (result != MessageBoxResult.Yes) return;
 
@@ -647,7 +647,7 @@ public partial class MainWindow : Window, GongSolutions.Wpf.DragDrop.IDropTarget
                     if (conflictsRemoved > 0)
                         msg += $"\n{conflictsRemoved} duplicate additional folder path(s) were automatically removed.";
                     msg += "\n\nClick 'Save Changes' to write updates to SD card.";
-                    MessageBox.Show(this, msg, "Folders Renamed", MessageBoxButton.OK, MessageBoxImage.Information);
+                    MessageBox.Show(this, msg, "Information", MessageBoxButton.OK, MessageBoxImage.Information);
                 }
                 else
                 {
@@ -667,7 +667,7 @@ public partial class MainWindow : Window, GongSolutions.Wpf.DragDrop.IDropTarget
         var result = MessageBox.Show(this,
             "Your disc images will be automatically sorted in alphanumeric order " +
             "based on a combination of Folder and Title.\n\nProceed?",
-            "Sort List", MessageBoxButton.YesNo, MessageBoxImage.Question);
+            "Confirmation", MessageBoxButton.YesNo, MessageBoxImage.Question);
 
         if (result != MessageBoxResult.Yes) return;
 
@@ -685,7 +685,7 @@ public partial class MainWindow : Window, GongSolutions.Wpf.DragDrop.IDropTarget
         if (!SearchInGrid(startIndex, filterText))
         {
             if (!SearchInGrid(0, filterText))
-                MessageBox.Show(this, "No matches found.", "Search", MessageBoxButton.OK, MessageBoxImage.Information);
+                MessageBox.Show(this, "No matches found.", "Information", MessageBoxButton.OK, MessageBoxImage.Information);
         }
     }
 
@@ -747,7 +747,7 @@ public partial class MainWindow : Window, GongSolutions.Wpf.DragDrop.IDropTarget
 
         var confirmResult = MessageBox.Show(this,
             $"Save changes to \"{_manager.SdCardPath}\" drive?",
-            "Save", MessageBoxButton.YesNo, MessageBoxImage.Question);
+            "Confirmation", MessageBoxButton.YesNo, MessageBoxImage.Question);
 
         if (confirmResult != MessageBoxResult.Yes) return;
 
@@ -796,7 +796,7 @@ public partial class MainWindow : Window, GongSolutions.Wpf.DragDrop.IDropTarget
                 progressWindow.AllowClose();
                 progressWindow.Close();
 
-                MessageBox.Show("Done!", "Message", MessageBoxButton.OK, MessageBoxImage.Information);
+                MessageBox.Show("Done!", "Information", MessageBoxButton.OK, MessageBoxImage.Information);
 
                 await LoadCard();
             }
@@ -890,7 +890,7 @@ public partial class MainWindow : Window, GongSolutions.Wpf.DragDrop.IDropTarget
             sb.Append($"{foldersLabel}: {(allFolders.Count > 0 ? FormatFolderList(allFolders) : "NA")}");
         }
 
-        MessageBox.Show(this, sb.ToString(), "Disc Image Info", MessageBoxButton.OK, MessageBoxImage.Information);
+        MessageBox.Show(this, sb.ToString(), "Information", MessageBoxButton.OK, MessageBoxImage.Information);
     }
 
     private static string FormatFolderList(List<string> folders)

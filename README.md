@@ -37,9 +37,13 @@ Please note that Rhea/Phoebe SD cards must be formatted as FAT32.
   - [Third-Party Components](#third-party-components)
 
 ## Current Version
-Orbital Organizer is currently at version [2.0.2](https://github.com/DerekPascarella/Orbital-Organizer/releases/tag/2.0.2).
+Orbital Organizer is currently at version [2.0.3](https://github.com/DerekPascarella/Orbital-Organizer/releases/tag/2.0.3).
 
 ## Changelog
+- **Version 2.0.3 (2026-05-15)**
+  - In macOS, fixed System Bar's "About <Application Name>" string (see [Issue 6](https://github.com/DerekPascarella/Orbital-Organizer/issues/6)).
+  - Added tooltip text to all selectable UI elements (see [Issue 7](https://github.com/DerekPascarella/Orbital-Organizer/issues/7)).
+  - Dialog box titles modified for Information/Confirmation/Error consistency (see [Issue 8](https://github.com/DerekPascarella/Orbital-Organizer/issues/8)).
 - **Version 2.0.2 (2026-05-05)**
   - On macOS, system bar title fixed to read "Orbital Organizer" instead of "Avalonia Application" (see [Issue 4](https://github.com/DerekPascarella/Orbital-Organizer/issues/4)).
   - Fixed broken auto-updater due to build pipeline version mismatch (see [Issue 5](https://github.com/DerekPascarella/Orbital-Organizer/issues/5)).

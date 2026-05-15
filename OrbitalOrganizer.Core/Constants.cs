@@ -6,7 +6,7 @@ namespace OrbitalOrganizer.Core;
 
 public static class Constants
 {
-    public const string Version = "2.0.2";
+    public const string Version = "2.0.3";
     public const string AppName = "Orbital Organizer";
     public const string AppDescription = "A tool to manage a Rhea/Phoebe SD card and its contents";
     public const string AppUrl = "https://github.com/DerekPascarella/Orbital-Organizer";

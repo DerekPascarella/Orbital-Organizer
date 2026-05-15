@@ -76,7 +76,7 @@ public partial class AboutWindow : Window
             {
                 MessageBox.Show(
                     "You are running the latest version.",
-                    "No Update Available",
+                    "Information",
                     MessageBoxButton.OK, MessageBoxImage.Information);
             }
         }
@@ -84,7 +84,7 @@ public partial class AboutWindow : Window
         {
             MessageBox.Show(
                 "Could not check for updates. Please check your internet connection.",
-                "Update Check Failed",
+                "Error",
                 MessageBoxButton.OK, MessageBoxImage.Warning);
         }
         finally

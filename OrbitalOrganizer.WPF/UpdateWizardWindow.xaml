@@ -12,8 +12,10 @@
         <TextBlock x:Name="SizeText" Foreground="Gray"/>
 
         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,20,0,0">
-            <Button x:Name="CancelDownloadButton" Content="Cancel" Click="CancelDownloadButton_Click" Width="90" Height="28" Margin="0,0,10,0"/>
-            <Button x:Name="InstallButton" Content="Install Now" Click="InstallButton_Click" Width="90" Height="28" Visibility="Collapsed"/>
+            <Button x:Name="CancelDownloadButton" Content="Cancel" Click="CancelDownloadButton_Click" Width="90" Height="28" Margin="0,0,10,0"
+                    ToolTip="Cancel the download"/>
+            <Button x:Name="InstallButton" Content="Install Now" Click="InstallButton_Click" Width="90" Height="28" Visibility="Collapsed"
+                    ToolTip="Install the downloaded update and restart"/>
         </StackPanel>
     </StackPanel>
 </Window>

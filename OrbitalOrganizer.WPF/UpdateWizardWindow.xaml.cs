@@ -111,7 +111,7 @@ public partial class UpdateWizardWindow : Window
         catch (Exception ex)
         {
             UpdateManager.CleanupStagingDirectory();
-            MessageBox.Show(this, $"Update failed: {ex.Message}", "Update Error",
+            MessageBox.Show(this, $"Update failed: {ex.Message}", "Error",
                 MessageBoxButton.OK, MessageBoxImage.Error);
             Close();
         }

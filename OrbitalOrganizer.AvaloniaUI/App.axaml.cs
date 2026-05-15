@@ -1,10 +1,11 @@
+using System;
 using Avalonia;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
 
 namespace OrbitalOrganizer;
 
-public class App : Application
+public partial class App : Application
 {
     public override void Initialize()
     {
@@ -19,5 +20,14 @@ public class App : Application
         }
 
         base.OnFrameworkInitializationCompleted();
+    }
+
+    private void AboutMenuItem_Click(object? sender, EventArgs e)
+    {
+        if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime { MainWindow: { } main })
+        {
+            var about = new AboutWindow();
+            _ = about.ShowDialog(main);
+        }
     }
 }

@@ -207,7 +207,7 @@ public partial class BatchFolderRenameWindow : Window, INotifyPropertyChanged
             {
                 MessageBox.Show(
                     "Only printable ASCII characters (letters, numbers, and standard symbols) are supported.",
-                    "Invalid Characters", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    "Error", MessageBoxButton.OK, MessageBoxImage.Warning);
                 node.Name = "PLEASE RENAME";
                 _editingOriginalName = null;
                 return;
@@ -232,7 +232,7 @@ public partial class BatchFolderRenameWindow : Window, INotifyPropertyChanged
                 {
                     MessageBox.Show(
                         "Only printable ASCII characters (letters, numbers, and standard symbols) are supported.",
-                        "Invalid Characters", MessageBoxButton.OK, MessageBoxImage.Warning);
+                        "Error", MessageBoxButton.OK, MessageBoxImage.Warning);
                     node.Name = "PLEASE RENAME";
                     _editingOriginalName = null;
                 }
@@ -350,7 +350,7 @@ public partial class BatchFolderRenameWindow : Window, INotifyPropertyChanged
                     if (IsDescendant(targetNode, droppedNode))
                     {
                         MessageBox.Show("Cannot move a folder into its own subfolder.",
-                            "Invalid Operation", MessageBoxButton.OK, MessageBoxImage.Warning);
+                            "Error", MessageBoxButton.OK, MessageBoxImage.Warning);
                         return;
                     }
 

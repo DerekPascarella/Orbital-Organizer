@@ -15,10 +15,12 @@
         <TextBlock Margin="0,10,0,0" TextWrapping="Wrap">An SD card management tool for the SEGA Saturn ODEs Rhea and Phoebe.</TextBlock>
         <TextBlock Margin="0,10,0,0">Documentation:</TextBlock>
         <TextBlock Margin="0,2,0,0" Foreground="Blue" TextDecorations="Underline"
-                   Cursor="Hand" PointerPressed="LinkText_PointerPressed">https://github.com/DerekPascarella/OrbitalOrganizer</TextBlock>
+                   Cursor="Hand" PointerPressed="LinkText_PointerPressed"
+                   ToolTip.Tip="Open the GitHub repository in your browser">https://github.com/DerekPascarella/OrbitalOrganizer</TextBlock>
         <Button Content="Check for Updates" Click="CheckForUpdatesButton_Click"
                 Margin="0,15,0,0" HorizontalAlignment="Right"
                 Padding="12,0" Height="28"
-                VerticalContentAlignment="Center"/>
+                VerticalContentAlignment="Center"
+                ToolTip.Tip="Check GitHub for a newer version"/>
     </StackPanel>
 </Window>

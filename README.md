@@ -41,7 +41,7 @@ Orbital Organizer is currently at version [2.0.3](https://github.com/DerekPascar
 
 ## Changelog
 - **Version 2.0.3 (2026-05-15)**
-  - In macOS, fixed System Bar's "About <Application Name>" string (see [Issue 6](https://github.com/DerekPascarella/Orbital-Organizer/issues/6)).
+  - In macOS, fixed System Bar's "About \<Application Name\>" string (see [Issue 6](https://github.com/DerekPascarella/Orbital-Organizer/issues/6)).
   - Added tooltip text to all selectable UI elements (see [Issue 7](https://github.com/DerekPascarella/Orbital-Organizer/issues/7)).
   - Dialog box titles modified for Information/Confirmation/Error consistency (see [Issue 8](https://github.com/DerekPascarella/Orbital-Organizer/issues/8)).
 - **Version 2.0.2 (2026-05-05)**

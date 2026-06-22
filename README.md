@@ -43,7 +43,7 @@ Orbital Organizer is currently at version [2.0.4](https://github.com/DerekPascar
 - **Version 2.0.4 (2026-06-22)**
   - For simplicity, progress bar now uses generic back-and-forth animation for all operations (see [Issue 9](https://github.com/DerekPascarella/Orbital-Organizer/issues/9)).
   - Pressing Delete key while editing a Games List cell no longer removes the entire entry (see [Issue 10](https://github.com/DerekPascarella/Orbital-Organizer/issues/10)).
-  - Adding CUE-based disc images under certain conditions no longer fail to automatically convert to CloneCD format (see [Issue 11](https://github.com/DerekPascarella/Orbital-Organizer/issues/11)).
+  - Adding CUE-based disc images under certain conditions no longer fails to automatically convert to CloneCD format (see [Issue 11](https://github.com/DerekPascarella/Orbital-Organizer/issues/11)).
   - Adding CUE-based disc images added as archives (e.g., ZIP) or folders no longer fails to parse metadata (see [Issue 12](https://github.com/DerekPascarella/Orbital-Organizer/issues/12)).
 - **Version 2.0.3 (2026-05-15)**
   - In macOS, fixed System Bar's "About \<Application Name\>" string (see [Issue 6](https://github.com/DerekPascarella/Orbital-Organizer/issues/6)).

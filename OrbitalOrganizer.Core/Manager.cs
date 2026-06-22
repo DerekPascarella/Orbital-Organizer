@@ -1054,7 +1054,11 @@ public class Manager : INotifyPropertyChanged
                 }
             }
 
-            if (game.ImageFiles.Any(f => Path.GetExtension(f).Equals(".chd", StringComparison.OrdinalIgnoreCase)))
+            if (game.ImageFiles.Any(f => Path.GetExtension(f).Equals(".ccd", StringComparison.OrdinalIgnoreCase)))
+                game.FileFormat = FileFormat.CloneCd;
+            else if (game.ImageFiles.Any(f => Path.GetExtension(f).Equals(".cue", StringComparison.OrdinalIgnoreCase)))
+                game.FileFormat = FileFormat.CueBin;
+            else if (game.ImageFiles.Any(f => Path.GetExtension(f).Equals(".chd", StringComparison.OrdinalIgnoreCase)))
                 game.FileFormat = FileFormat.Chd;
         }
 
@@ -1088,6 +1092,10 @@ public class Manager : INotifyPropertyChanged
             var game = LoadGameFromSource(tempDir, specificFile: null);
             if (game == null)
                 return null;
+
+            // Fall back to the archive name when no title was parsed
+            if (game.Name == Path.GetFileName(tempDir))
+                game.Name = Path.GetFileNameWithoutExtension(archivePath);
 
             // Grab the uncompressed size from the extracted files before cleanup
             long uncompressedSize = game.Length;

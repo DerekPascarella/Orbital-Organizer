@@ -774,6 +774,7 @@ public partial class MainWindow : Window, GongSolutions.Wpf.DragDrop.IDropTarget
             var progressWindow = new ProgressWindow();
             progressWindow.Owner = this;
             progressWindow.TotalItems = _manager.ItemList.Count(g => !g.IsMenuItem);
+            progressWindow.IsIndeterminate = true;
             progressWindow.Show();
 
             try
@@ -1285,6 +1286,11 @@ public partial class MainWindow : Window, GongSolutions.Wpf.DragDrop.IDropTarget
 
     private void MainWindow_PreviewKeyDown(object sender, KeyEventArgs e)
     {
+        // Skip these while editing a cell or typing in the filter box. PreviewKeyDown
+        // tunnels to the window first, so otherwise Delete wipes the row mid-edit.
+        if (_isCellEditing || e.OriginalSource is System.Windows.Controls.Primitives.TextBoxBase)
+            return;
+
         if (e.Key == Key.Z && Keyboard.Modifiers == ModifierKeys.Control)
         {
             if (_manager.UndoManager.CanUndo)
@@ -1314,6 +1320,7 @@ public partial class MainWindow : Window, GongSolutions.Wpf.DragDrop.IDropTarget
     // --- Cell editing ---
 
     private string? _editOldValue;
+    private bool _isCellEditing;
 
     private void GameGrid_BeginningEdit(object? sender, DataGridBeginningEditEventArgs e)
     {
@@ -1342,10 +1349,16 @@ public partial class MainWindow : Window, GongSolutions.Wpf.DragDrop.IDropTarget
                 _ => null
             };
         }
+
+        // Editing started (the cancel cases above returned early).
+        _isCellEditing = true;
     }
 
     private void GameGrid_CellEditEnding(object? sender, DataGridCellEditEndingEventArgs e)
     {
+        // Editing ended, whatever the outcome.
+        _isCellEditing = false;
+
         if (e.EditAction == DataGridEditAction.Cancel) return;
         if (e.Row.DataContext is not SaturnGame game) return;
         if (_editOldValue == null) return;

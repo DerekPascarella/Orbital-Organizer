@@ -74,6 +74,16 @@ public static class IpBinParser
                 if (offset >= 0)
                     return (offset, targetFile);
             }
+            else if (ext == ".cue")
+            {
+                // For CUE/BIN, the IP.BIN data lives in one of the referenced tracks
+                foreach (var track in CueSheetParser.GetReferencedFiles(file))
+                {
+                    long offset = FindIpBinStart(track);
+                    if (offset >= 0)
+                        return (offset, track);
+                }
+            }
         }
 
         return (-1, null);

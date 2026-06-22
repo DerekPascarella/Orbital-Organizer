@@ -23,6 +23,7 @@ public partial class ProgressWindow : Window, INotifyPropertyChanged
     private int _totalItems;
     private int _processedItems;
     private string _textContent = string.Empty;
+    private bool _isIndeterminate;
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
@@ -42,6 +43,12 @@ public partial class ProgressWindow : Window, INotifyPropertyChanged
     {
         get => _textContent;
         set { _textContent = value; OnPropertyChanged(); }
+    }
+
+    public bool IsIndeterminate
+    {
+        get => _isIndeterminate;
+        set { _isIndeterminate = value; OnPropertyChanged(); }
     }
 
     public ProgressWindow()

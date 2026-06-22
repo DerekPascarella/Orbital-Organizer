@@ -757,6 +757,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
 
             var progressWindow = new ProgressWindow();
             progressWindow.TotalItems = _manager.ItemList.Count(g => !g.IsMenuItem);
+            progressWindow.IsIndeterminate = true;
             progressWindow.Show(this);
 
             try
@@ -1268,6 +1269,11 @@ public partial class MainWindow : Window, INotifyPropertyChanged
 
     private void MainWindow_KeyDown(object? sender, KeyEventArgs e)
     {
+        // Skip these while editing a cell or typing in the filter box, otherwise
+        // Delete removes the selected row instead of editing text.
+        if (e.Source is TextBox)
+            return;
+
         if (e.Key == Key.Z && e.KeyModifiers == KeyModifiers.Control)
         {
             if (_manager.UndoManager.CanUndo)

@@ -21,6 +21,7 @@ Please note that Rhea/Phoebe SD cards must be formatted as FAT32.
   - [Adding Games](#adding-games)
   - [Removing Games](#removing-games)
   - [Editing Game Information](#editing-game-information)
+  - [Batch Folder Move and Rename](#batch-folder-move-and-rename)
   - [Modifying Product ID](#modifying-product-id)
   - [Reordering Games](#reordering-games)
   - [Searching and Filtering](#searching-and-filtering)
@@ -37,9 +38,11 @@ Please note that Rhea/Phoebe SD cards must be formatted as FAT32.
   - [Third-Party Components](#third-party-components)
 
 ## Current Version
-Orbital Organizer is currently at version [2.0.4](https://github.com/DerekPascarella/Orbital-Organizer/releases/tag/2.0.4).
+Orbital Organizer is currently at version [2.0.5](https://github.com/DerekPascarella/Orbital-Organizer/releases/tag/2.0.5).
 
 ## Changelog
+- **Version 2.0.5 (2026-07-14)**
+  - Batch Folder Move/Rename function added to Linux and macOS builds (see [Issue 13](https://github.com/DerekPascarella/Orbital-Organizer/issues/13)).
 - **Version 2.0.4 (2026-06-22)**
   - For simplicity, progress bar now uses generic back-and-forth animation for all operations (see [Issue 9](https://github.com/DerekPascarella/Orbital-Organizer/issues/9)).
   - Pressing Delete key while editing a Games List cell no longer removes the entire entry (see [Issue 10](https://github.com/DerekPascarella/Orbital-Organizer/issues/10)).
@@ -159,6 +162,13 @@ Multiple games can be selected at once for bulk operations. Right-clicking opens
   - **Using disc image's base file name** - Use the file name of each disc image (only available for newly added games).
 - **Assign Folder Path** (RmenuKai only) - Set the virtual folder path for all selected games (e.g., `Games\JRPG`).
 - **Assign Additional Folder Paths** (RmenuKai only) - Set up to five alternative virtual folder paths for a game, allowing it to appear in multiple folders (single selection only).
+
+### Batch Folder Move and Rename
+The **Batch Folder Move and Rename** button (RmenuKai only) opens a dialog that displays every virtual folder path in the game list as a tree, allowing folders to be reorganized in bulk without editing each game individually:
+- **Rename** - Double-click a folder to rename it. Press Enter to confirm or Escape to revert.
+- **Move** - Drag a folder onto another folder to make it a subfolder, or onto **(Root)** to move it to the top level.
+
+The dialog's **Undo Last Change** button reverts individual edits before they are applied, and **Cancel** discards everything. Clicking **Save** updates the folder paths of all affected games, including subfolders and additional folder paths. As with other list operations, the result can be reverted with the main window's **Undo** button, and nothing is written to the SD card until **Save Changes** is clicked.
 
 ### Modifying Product ID
 The Product ID is a piece of metadata associated with Sega Saturn games which ties a piece of software to a unique identifier. There are cases where it may be useful to populate a missing Product ID for homebrew software, or fix incorrect Product IDs like that of the Japanese version of "Virtua Fighter Kids" where `GS-9079` is stored on the disc but the correct ID is `GS-9098`.

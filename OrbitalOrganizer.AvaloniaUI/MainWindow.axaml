@@ -135,6 +135,9 @@
             </HeaderedContentControl.Header>
             <DockPanel>
                 <DockPanel DockPanel.Dock="Top" Margin="0,0,0,8">
+                    <Button x:Name="ButtonBatchFolderRename" DockPanel.Dock="Right" HorizontalAlignment="Right" Padding="10,5" Margin="10,0,0,0" Click="ButtonBatchFolderRename_Click"
+                            ToolTip.Tip="Easily rearrange and rename virtual folders"
+                            IsEnabled="{Binding HasSdPath, Mode=OneWay}">Batch Folder Move and Rename</Button>
                     <Button x:Name="ButtonSort" DockPanel.Dock="Right" HorizontalAlignment="Right" Padding="10,5" Click="ButtonSort_Click"
                             ToolTip.Tip="Sort list by folder path + title"
                             IsEnabled="{Binding CanModifyList, Mode=OneWay}">Sort List</Button>

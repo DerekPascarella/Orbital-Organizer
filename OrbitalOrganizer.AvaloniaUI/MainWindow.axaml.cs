@@ -385,6 +385,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             UpdateMenuTypeRadioButtons();
             UpdateFolderColumnVisibility();
             UpdateSortButtonTooltip();
+            UpdateBatchFolderRenameVisibility();
 
             // Check if any items need a metadata scan (missing sidecar files)
             var itemsNeedingScan = _manager.GetItemsNeedingMetadataScan();
@@ -467,6 +468,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
 
         UpdateFolderColumnVisibility();
         UpdateSortButtonTooltip();
+        UpdateBatchFolderRenameVisibility();
     }
 
     private void UpdateSortButtonTooltip()
@@ -475,6 +477,12 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         ToolTip.SetTip(ButtonSort, _manager.MenuKindSelected == MenuKind.Rmenu
             ? "Sort list by title"
             : "Sort list by folder path + title");
+    }
+
+    private void UpdateBatchFolderRenameVisibility()
+    {
+        if (ButtonBatchFolderRename == null) return;
+        ButtonBatchFolderRename.IsVisible = _manager.MenuKindSelected != MenuKind.Rmenu;
     }
 
     private void UpdateMenuTypeRadioButtons()
@@ -625,6 +633,77 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             OldOrder = oldOrder,
             NewOrder = _manager.ItemList.ToList()
         });
+    }
+
+    private async void ButtonBatchFolderRename_Click(object? sender, RoutedEventArgs e)
+    {
+        try
+        {
+            if (IsFilterActive) return;
+            if (_manager.ItemList.Count == 0) return;
+
+            var folderCounts = _manager.GetFolderCounts();
+
+            if (folderCounts.Count == 0)
+            {
+                var infoBox = MessageBoxManager.GetMessageBoxStandard("Information",
+                    "No folders found in the current game list.", ButtonEnum.Ok, MsBoxIcon.Info);
+                await infoBox.ShowWindowDialogAsync(this);
+                return;
+            }
+
+            var window = new BatchFolderRenameWindow(folderCounts, _manager.ItemList.Count);
+            await window.ShowDialog(this);
+
+            if (window.UserConfirmed && window.FolderMappings != null)
+            {
+                var snapshots = _manager.ItemList
+                    .Select(g => new BatchFolderRenameOperation.ItemSnapshot
+                    {
+                        Item = g,
+                        OldFolder = g.Folder,
+                        OldAltFolders = new List<string>(g.AlternativeFolders)
+                    }).ToList();
+
+                var (updatedCount, conflictsRemoved) = _manager.ApplyFolderMappings(window.FolderMappings);
+
+                if (updatedCount > 0 || conflictsRemoved > 0)
+                {
+                    var undoOp = new BatchFolderRenameOperation();
+                    foreach (var s in snapshots)
+                    {
+                        s.NewFolder = s.Item.Folder;
+                        s.NewAltFolders = new List<string>(s.Item.AlternativeFolders);
+                        if (s.OldFolder != s.NewFolder ||
+                            !s.OldAltFolders.SequenceEqual(s.NewAltFolders))
+                            undoOp.Snapshots.Add(s);
+                    }
+
+                    if (undoOp.Snapshots.Count > 0)
+                        _manager.UndoManager.RecordChange(undoOp);
+
+                    _manager.RefreshKnownFolders();
+
+                    var msg = $"{updatedCount} disc image(s) updated across {window.FolderMappings.Count} folder(s).";
+                    if (conflictsRemoved > 0)
+                        msg += $"\n{conflictsRemoved} duplicate additional folder path(s) were automatically removed.";
+                    msg += "\n\nClick 'Save Changes' to write updates to SD card.";
+                    var doneBox = MessageBoxManager.GetMessageBoxStandard("Information", msg, ButtonEnum.Ok, MsBoxIcon.Info);
+                    await doneBox.ShowWindowDialogAsync(this);
+                }
+                else
+                {
+                    var noneBox = MessageBoxManager.GetMessageBoxStandard("Information",
+                        "No changes were made.", ButtonEnum.Ok, MsBoxIcon.Info);
+                    await noneBox.ShowWindowDialogAsync(this);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            var msgBox = MessageBoxManager.GetMessageBoxStandard("Error", ex.Message, ButtonEnum.Ok, MsBoxIcon.Error);
+            await msgBox.ShowWindowDialogAsync(this);
+        }
     }
 
     private async void ButtonSort_Click(object? sender, RoutedEventArgs e)

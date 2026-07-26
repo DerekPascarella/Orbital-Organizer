@@ -106,11 +106,11 @@
                     <TextBlock Grid.Column="0" VerticalAlignment="Center">Menu Type</TextBlock>
                     <StackPanel Grid.Column="1" Orientation="Horizontal" Margin="10,0,0,0" VerticalAlignment="Center">
                         <RadioButton x:Name="RadioRmenuKai" Content="RmenuKai" GroupName="MenuType"
-                                     IsChecked="True" Checked="MenuType_Changed" ToolTip.Tip="Use RmenuKai"/>
+                                     IsChecked="True" IsCheckedChanged="MenuType_Changed" ToolTip.Tip="Use RmenuKai"/>
                         <RadioButton x:Name="RadioRmenu" Content="RMENU" GroupName="MenuType" Margin="10,0,0,0"
-                                     Checked="MenuType_Changed" ToolTip.Tip="Use RMENU"/>
+                                     IsCheckedChanged="MenuType_Changed" ToolTip.Tip="Use RMENU"/>
                         <RadioButton x:Name="RadioBoth" Content="Both" GroupName="MenuType" Margin="10,0,0,0"
-                                     Checked="MenuType_Changed" ToolTip.Tip="Use Both"/>
+                                     IsCheckedChanged="MenuType_Changed" ToolTip.Tip="Use Both"/>
                     </StackPanel>
                 </Grid>
 
@@ -185,11 +185,12 @@
                     </Grid>
                 </DockPanel>
 
+                <Grid>
                 <DataGrid x:Name="GameGrid"
                           AutoGenerateColumns="False"
                           CanUserSortColumns="False"
                           CanUserReorderColumns="False"
-                          CanUserResizeColumns="False"
+                          CanUserResizeColumns="True"
                           SelectionMode="Extended"
                           IsReadOnly="False"
                           RowBackground="White"
@@ -291,6 +292,10 @@
                         </DataGridTemplateColumn>
                     </DataGrid.Columns>
                 </DataGrid>
+                <Border x:Name="DropLine" Height="2" Background="{DynamicResource ThemeAccentBrush}"
+                        HorizontalAlignment="Stretch" VerticalAlignment="Top"
+                        IsHitTestVisible="False" IsVisible="False"/>
+                </Grid>
             </DockPanel>
         </HeaderedContentControl>
 

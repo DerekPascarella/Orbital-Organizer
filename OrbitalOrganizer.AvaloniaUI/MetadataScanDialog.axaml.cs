@@ -1,15 +1,24 @@
 using Avalonia.Controls;
 using Avalonia.Interactivity;
+using Avalonia.Markup.Xaml;
 
 namespace OrbitalOrganizer;
 
 public partial class MetadataScanDialog : Window
 {
+    private TextBlock GameCountText = null!;
+
     public bool StartScan { get; private set; }
 
     public MetadataScanDialog()
     {
         InitializeComponent();
+    }
+
+    private void InitializeComponent()
+    {
+        AvaloniaXamlLoader.Load(this);
+        GameCountText = this.FindControl<TextBlock>("GameCountText")!;
     }
 
     public MetadataScanDialog(int gameCount) : this()

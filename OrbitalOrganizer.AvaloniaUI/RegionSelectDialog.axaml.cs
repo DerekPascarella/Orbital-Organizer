@@ -1,10 +1,13 @@
 using Avalonia.Controls;
 using Avalonia.Interactivity;
+using Avalonia.Markup.Xaml;
 
 namespace OrbitalOrganizer;
 
 public partial class RegionSelectDialog : Window
 {
+    private ComboBox RegionComboBox = null!;
+
     private static readonly (string Code, string Label)[] Regions =
     {
         ("J", "Japan"),
@@ -31,6 +34,12 @@ public partial class RegionSelectDialog : Window
         RegionComboBox.SelectedIndex = 0;
 
         Closing += OnClosing;
+    }
+
+    private void InitializeComponent()
+    {
+        AvaloniaXamlLoader.Load(this);
+        RegionComboBox = this.FindControl<ComboBox>("RegionComboBox")!;
     }
 
     private void OkButton_Click(object? sender, RoutedEventArgs e)

@@ -25,13 +25,26 @@
     <PackageReference Include="SharpCompress" Version="0.33.0" />
   </ItemGroup>
 
-  <!-- Native libchdr for dev builds (F5 / dotnet run on Windows).
+  <!-- Native libchdr for dev builds (F5 / dotnet run without a RID).
        Release publish uses libchdr.targets imported by the app projects. -->
   <ItemGroup Condition="'$(RuntimeIdentifier)' == ''">
-    <Content Include="runtimes\win-x64\native\libchdr.dll" Condition="Exists('runtimes\win-x64\native\libchdr.dll')">
+    <Content Include="runtimes\win-x64\native\libchdr.dll"
+             Condition="$([MSBuild]::IsOSPlatform('Windows')) AND Exists('runtimes\win-x64\native\libchdr.dll')">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <CopyToPublishDirectory>Never</CopyToPublishDirectory>
       <Link>libchdr.dll</Link>
+    </Content>
+    <Content Include="runtimes\linux-x64\native\libchdr.so"
+             Condition="$([MSBuild]::IsOSPlatform('Linux')) AND Exists('runtimes\linux-x64\native\libchdr.so')">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>Never</CopyToPublishDirectory>
+      <Link>libchdr.so</Link>
+    </Content>
+    <Content Include="runtimes\osx-$([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString().ToLower())\native\libchdr.dylib"
+             Condition="$([MSBuild]::IsOSPlatform('OSX')) AND Exists('runtimes\osx-$([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString().ToLower())\native\libchdr.dylib')">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>Never</CopyToPublishDirectory>
+      <Link>libchdr.dylib</Link>
     </Content>
   </ItemGroup>
 

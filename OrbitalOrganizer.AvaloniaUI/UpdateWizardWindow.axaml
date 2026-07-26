@@ -5,7 +5,7 @@
         mc:Ignorable="d" d:DesignWidth="500" d:DesignHeight="200"
         x:Class="OrbitalOrganizer.UpdateWizardWindow"
         Title="Updating Orbital Organizer" SizeToContent="Height" Width="500"
-        CanResize="False"
+        CanResize="False" CanMinimize="False"
         WindowStartupLocation="CenterOwner">
     <StackPanel Margin="20">
         <TextBlock x:Name="StatusText" TextWrapping="Wrap" Margin="0,0,0,10"/>

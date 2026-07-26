@@ -2,6 +2,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
+using Avalonia.Markup.Xaml;
 using MsBox.Avalonia;
 using MsBox.Avalonia.Enums;
 using System.Collections.ObjectModel;
@@ -13,9 +14,21 @@ namespace OrbitalOrganizer;
 
 public partial class BatchFolderRenameWindow : Window, INotifyPropertyChanged
 {
-    private const string NodeFormat = "oo-folder-tree-node";
+    private TreeView FolderTreeView = null!;
+
+    // In-process format so the node itself reaches the drop side without ever
+    // going near the system clipboard.
+    private static readonly DataFormat<FolderTreeNode> NodeFormat =
+        DataFormat.CreateInProcessFormat<FolderTreeNode>("oo-folder-tree-node");
+    // macOS drops the in-process format from the drag before it hands it to the OS
+    // and then rejects a drag that carries nothing, so this small marker rides along.
+    private static readonly DataFormat<byte[]> NodeMarkerFormat =
+        DataFormat.CreateBytesApplicationFormat("oo-folder-tree-node-marker");
 
     private Point _dragStartPoint;
+    // DoDragDropAsync wants the press event that started things, so it is held
+    // until the pointer has moved far enough to count as a drag.
+    private PointerPressedEventArgs? _dragTriggerEvent;
     private FolderTreeNode? _draggedNode;
     private FolderTreeNode? _clickedNode;
     private FolderTreeNode? _currentDropTarget;
@@ -100,6 +113,12 @@ public partial class BatchFolderRenameWindow : Window, INotifyPropertyChanged
     {
         InitializeComponent();
         DataContext = this;
+    }
+
+    private void InitializeComponent()
+    {
+        AvaloniaXamlLoader.Load(this);
+        FolderTreeView = this.FindControl<TreeView>("FolderTreeView")!;
     }
 
     public BatchFolderRenameWindow(Dictionary<string, int> folderCounts, int totalItemCount) : this()
@@ -270,6 +289,7 @@ public partial class BatchFolderRenameWindow : Window, INotifyPropertyChanged
         if (!e.GetCurrentPoint(FolderTreeView).Properties.IsLeftButtonPressed)
         {
             _clickedNode = null;
+            _dragTriggerEvent = null;
             return;
         }
 
@@ -282,11 +302,12 @@ public partial class BatchFolderRenameWindow : Window, INotifyPropertyChanged
             node = null;
 
         _clickedNode = node;
+        _dragTriggerEvent = node != null ? e : null;
     }
 
     private async void Tree_PointerMoved(object? sender, PointerEventArgs e)
     {
-        if (_clickedNode == null || _draggedNode != null)
+        if (_clickedNode == null || _draggedNode != null || _dragTriggerEvent == null)
             return;
 
         if (_clickedNode.IsRootNode)
@@ -302,12 +323,13 @@ public partial class BatchFolderRenameWindow : Window, INotifyPropertyChanged
 
         _draggedNode = _clickedNode;
 
-        var data = new DataObject();
-        data.Set(NodeFormat, _draggedNode);
+        var data = new DataTransfer();
+        data.Add(DataTransferItem.Create(NodeFormat, _draggedNode));
+        data.Add(DataTransferItem.Create(NodeMarkerFormat, new byte[] { 1 }));
 
         try
         {
-            await DragDrop.DoDragDrop(e, data, DragDropEffects.Move);
+            await DragDrop.DoDragDropAsync(_dragTriggerEvent, data, DragDropEffects.Move);
         }
         catch (Exception)
         {
@@ -316,6 +338,7 @@ public partial class BatchFolderRenameWindow : Window, INotifyPropertyChanged
 
         _draggedNode = null;
         _clickedNode = null;
+        _dragTriggerEvent = null;
         ClearDropTarget();
     }
 

@@ -6,7 +6,7 @@
         x:Class="OrbitalOrganizer.AssignAltFoldersWindow"
         Title="Assign Additional Folder Paths"
         SizeToContent="Height" Width="420" MinHeight="160" MaxHeight="460"
-        CanResize="False" WindowStartupLocation="CenterOwner">
+        CanResize="False" CanMinimize="False" WindowStartupLocation="CenterOwner">
     <StackPanel Margin="15">
         <TextBlock x:Name="HeaderLabel" Margin="0,0,0,15" FontWeight="Bold"/>
 

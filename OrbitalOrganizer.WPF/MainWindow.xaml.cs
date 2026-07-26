@@ -25,6 +25,10 @@ public partial class MainWindow : Window, GongSolutions.Wpf.DragDrop.IDropTarget
     private readonly AppSettings _settings;
     private bool _suppressMenuTypeChange;
 
+    // Root path of each drive in DriveComboBox, by index. The combo items are
+    // display labels and the path can't be recovered from them.
+    private readonly List<string> _drivePaths = new();
+
     private bool _isBusy;
     public bool IsBusy
     {
@@ -194,6 +198,11 @@ public partial class MainWindow : Window, GongSolutions.Wpf.DragDrop.IDropTarget
 
     private void MainWindow_Closing(object? sender, CancelEventArgs e)
     {
+        if (IsBusy)
+        {
+            e.Cancel = true;
+            return;
+        }
         SaveSettings();
     }
 
@@ -221,6 +230,7 @@ public partial class MainWindow : Window, GongSolutions.Wpf.DragDrop.IDropTarget
         IsUsingCustomPath = false;
         CustomSdPath = string.Empty;
         DriveComboBox.Items.Clear();
+        _drivePaths.Clear();
 
         int autoSelectIndex = -1;
         int index = 0;
@@ -233,6 +243,7 @@ public partial class MainWindow : Window, GongSolutions.Wpf.DragDrop.IDropTarget
                     ? $"{drive.Name} ({drive.VolumeLabel})"
                     : drive.Name;
                 DriveComboBox.Items.Add(label);
+                _drivePaths.Add(drive.Name);
 
                 if (autoSelectIndex == -1 && drive.IsReady)
                 {
@@ -313,10 +324,10 @@ public partial class MainWindow : Window, GongSolutions.Wpf.DragDrop.IDropTarget
 
     private async void DriveList_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (DriveComboBox.SelectedItem == null || IsBusy) return;
+        int selectedIndex = DriveComboBox.SelectedIndex;
+        if (selectedIndex < 0 || selectedIndex >= _drivePaths.Count || IsBusy) return;
 
-        string selected = DriveComboBox.SelectedItem.ToString()!;
-        string drivePath = selected.Length >= 3 ? selected[..3] : selected;
+        string drivePath = _drivePaths[selectedIndex];
 
         IsUsingCustomPath = false;
         CustomSdPath = string.Empty;
@@ -758,6 +769,15 @@ public partial class MainWindow : Window, GongSolutions.Wpf.DragDrop.IDropTarget
             regionDialog.Owner = this;
             regionDialog.ShowDialog();
             _manager.PendingConsoleRegion = regionDialog.SelectedRegionCode;
+        }
+
+        var spaceCheck = await _manager.CalculateRequiredSpaceAsync();
+        if (!spaceCheck.HasSufficientSpace)
+        {
+            var proceed = MessageBox.Show(this,
+                Manager.BuildSpaceWarningMessage(spaceCheck),
+                "Confirmation", MessageBoxButton.YesNo, MessageBoxImage.Warning);
+            if (proceed != MessageBoxResult.Yes) return;
         }
 
         IsBusy = true;

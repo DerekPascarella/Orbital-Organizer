@@ -1,4 +1,3 @@
-using System.Runtime.InteropServices;
 using SharpCompress.Archives;
 using SharpCompress.Common;
 using SharpCompress.Readers;
@@ -46,14 +45,10 @@ public static class ArchiveHelper
     {
         var files = GetArchiveFiles(archivePath);
 
-        bool isWindows = RuntimeInformation.IsOSPlatform(OSPlatform.Windows);
-
         foreach (var fileName in files.Keys)
         {
             var ext = Path.GetExtension(fileName).ToLowerInvariant();
-            if (Constants.AllImageExtensions.Contains(ext))
-                return fileName;
-            if (isWindows && ext == ".chd")
+            if (Constants.AllImageExtensions.Contains(ext) || ext == ".chd")
                 return fileName;
         }
 

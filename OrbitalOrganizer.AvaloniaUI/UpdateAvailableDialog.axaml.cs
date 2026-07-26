@@ -1,6 +1,7 @@
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
+using Avalonia.Markup.Xaml;
 using OrbitalOrganizer.Core;
 using System.Text.Json;
 
@@ -8,6 +9,8 @@ namespace OrbitalOrganizer;
 
 public partial class UpdateAvailableDialog : Window
 {
+    private TextBlock VersionText = null!;
+
     public string LatestTag { get; private set; } = "";
     public string LatestVersion { get; private set; } = "";
     public bool UserWantsUpdate { get; private set; }
@@ -15,6 +18,12 @@ public partial class UpdateAvailableDialog : Window
     public UpdateAvailableDialog()
     {
         InitializeComponent();
+    }
+
+    private void InitializeComponent()
+    {
+        AvaloniaXamlLoader.Load(this);
+        VersionText = this.FindControl<TextBlock>("VersionText")!;
     }
 
     public UpdateAvailableDialog(string latestTag, string latestVersion)

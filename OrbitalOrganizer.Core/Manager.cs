@@ -1,6 +1,8 @@
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
+using System.Text;
+using ByteSizeLib;
 using OrbitalOrganizer.Core.Models;
 using OrbitalOrganizer.Core.Services;
 
@@ -1173,6 +1175,186 @@ public class Manager : INotifyPropertyChanged
                 return (offset, file);
         }
         return (-1, null);
+    }
+
+    /// <summary>
+    /// Estimates whether the SD card has enough free space for the pending
+    /// save. Sizes for compressed and converted images are estimates.
+    /// </summary>
+    public async Task<SpaceCheckResult> CalculateRequiredSpaceAsync()
+    {
+        var result = new SpaceCheckResult
+        {
+            MetadataBuffer = 1 * 1024 * 1024
+        };
+
+        if (string.IsNullOrEmpty(SdCardPath) || !Directory.Exists(SdCardPath))
+        {
+            // Nothing to measure against, let the save proceed.
+            result.HasSufficientSpace = true;
+            return result;
+        }
+
+        await Task.Run(() =>
+        {
+            result.AvailableSpace = GetAvailableSpace(SdCardPath);
+
+            // Menu footprint. Rebuilding an existing RMENU.iso only needs
+            // headroom. A fresh card needs the menu assets plus the ISO
+            // built from them, and Both mode carries a second instance.
+            string menuFolder = Path.Combine(SdCardPath, Constants.MenuFolderName);
+            result.MenuFolderExists = Directory.Exists(menuFolder);
+            bool menuIsoExists = File.Exists(Path.Combine(menuFolder, "RMENU.iso"));
+
+            const long menuWiggleRoom = 5L * 1024 * 1024;
+            int menuInstances = MenuKindSelected == MenuKind.Both ? 2 : 1;
+
+            long menuAssetSize = 0;
+            if (!menuIsoExists && !string.IsNullOrEmpty(ToolsPath))
+            {
+                menuAssetSize += GetDirectorySize(Path.Combine(ToolsPath, "shared"));
+                string menuDir = MenuKindSelected == MenuKind.Rmenu ? "rmenu_legacy" : "rmenukai";
+                menuAssetSize += GetDirectorySize(Path.Combine(ToolsPath, menuDir));
+            }
+            result.MenuSpaceNeeded = (menuAssetSize * 2 + menuWiggleRoom) * menuInstances;
+
+            // Orphaned numbered folders get deleted during save, giving their
+            // space back before the copies start.
+            var knownFolders = new HashSet<string>(
+                ItemList.Where(g => !g.IsMenuItem && g.WorkMode != WorkMode.New)
+                        .Select(g => Path.GetFileName(g.FullFolderPath)),
+                StringComparer.OrdinalIgnoreCase);
+
+            foreach (var dir in Directory.GetDirectories(SdCardPath))
+            {
+                string folderName = Path.GetFileName(dir);
+                if (!int.TryParse(folderName, out int num)) continue;
+                if (num == Constants.MenuFolderNumber) continue;
+
+                if (!knownFolders.Contains(folderName))
+                    result.SpaceToBeFreed += GetDirectorySize(dir);
+            }
+
+            // Size of the items that will be copied onto the card.
+            foreach (var game in ItemList)
+            {
+                if (game.WorkMode != WorkMode.New || game.IsLegacyRmenu) continue;
+
+                result.NewItemCount++;
+                long size = Math.Max(game.Length, 0);
+
+                var format = game.FileFormat == FileFormat.Compressed
+                    ? game.InnerFileFormat ?? FileFormat.Uncompressed
+                    : game.FileFormat;
+
+                if (game.FileFormat == FileFormat.Compressed)
+                    result.ContainsEstimatedSizes = true;
+
+                if (format == FileFormat.CueBin)
+                {
+                    // Conversion to CCD/IMG/SUB writes full 2352 byte sectors
+                    // plus 96 bytes of subchannel each, so images ripped with
+                    // 2048 byte sectors grow by roughly a fifth.
+                    size = (long)(size * 1.25);
+                    result.ContainsEstimatedSizes = true;
+                }
+                else if (format == FileFormat.Chd)
+                {
+                    // Length holds the compressed CHD size, the converted
+                    // output will be larger.
+                    size *= 2;
+                    result.ContainsEstimatedSizes = true;
+                }
+
+                result.NewItemsSize += size;
+            }
+
+            result.TotalNeeded = result.NewItemsSize + result.MenuSpaceNeeded + result.MetadataBuffer;
+            result.EffectiveAvailable = result.AvailableSpace + result.SpaceToBeFreed;
+            result.Shortfall = result.TotalNeeded - result.EffectiveAvailable;
+            result.HasSufficientSpace = result.Shortfall <= 0;
+        });
+
+        return result;
+    }
+
+    /// <summary>
+    /// Builds the warning text shown when the space check comes up short.
+    /// </summary>
+    public static string BuildSpaceWarningMessage(SpaceCheckResult spaceCheck)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine("Insufficient space on the SD card.\n");
+        sb.AppendLine("Space needed:");
+        sb.AppendLine($"  • New disc images ({spaceCheck.NewItemCount}): {FormatBytes(spaceCheck.NewItemsSize)}");
+        sb.AppendLine($"  • Menu files: ~{FormatBytes(spaceCheck.MenuSpaceNeeded)}");
+        sb.AppendLine($"  • Metadata files: ~{FormatBytes(spaceCheck.MetadataBuffer)}");
+        sb.AppendLine($"  Total: ~{FormatBytes(spaceCheck.TotalNeeded)}\n");
+        sb.AppendLine($"Space available: {FormatBytes(spaceCheck.AvailableSpace)}");
+        if (spaceCheck.SpaceToBeFreed > 0)
+        {
+            sb.AppendLine($"Space to be freed: {FormatBytes(spaceCheck.SpaceToBeFreed)}");
+            sb.AppendLine($"Effective available: {FormatBytes(spaceCheck.EffectiveAvailable)}");
+        }
+        sb.AppendLine($"\nShortfall: ~{FormatBytes(spaceCheck.Shortfall)}");
+        if (spaceCheck.ContainsEstimatedSizes)
+            sb.AppendLine("\nNote: Some items are compressed or need conversion and their final sizes are estimates.");
+        sb.Append("\nDo you want to proceed anyway?");
+        return sb.ToString();
+    }
+
+    private static string FormatBytes(long bytes) => ByteSize.FromBytes(bytes).ToString("0.##");
+
+    private static long GetAvailableSpace(string path)
+    {
+        try
+        {
+            // Windows paths resolve straight from the root. On Linux and
+            // macOS the root is always "/", so find the longest mount point
+            // that contains the path instead.
+            string? pathRoot = Path.GetPathRoot(path);
+            if (!string.IsNullOrEmpty(pathRoot) && pathRoot != "/" && pathRoot != "\\")
+                return new DriveInfo(pathRoot).AvailableFreeSpace;
+
+            string fullPath = Path.GetFullPath(path);
+            if (!fullPath.EndsWith(Path.DirectorySeparatorChar))
+                fullPath += Path.DirectorySeparatorChar;
+
+            DriveInfo? best = null;
+            foreach (var drive in DriveInfo.GetDrives())
+            {
+                if (!drive.IsReady) continue;
+
+                string mountPath = drive.RootDirectory.FullName;
+                if (!mountPath.EndsWith(Path.DirectorySeparatorChar))
+                    mountPath += Path.DirectorySeparatorChar;
+
+                if (fullPath.StartsWith(mountPath, StringComparison.Ordinal) &&
+                    (best == null || mountPath.Length > best.RootDirectory.FullName.Length))
+                {
+                    best = drive;
+                }
+            }
+
+            return best?.AvailableFreeSpace ?? 0;
+        }
+        catch
+        {
+            return 0;
+        }
+    }
+
+    private static long GetDirectorySize(string path)
+    {
+        try
+        {
+            return Directory.EnumerateFiles(path, "*", SearchOption.AllDirectories)
+                .Sum(f => new FileInfo(f).Length);
+        }
+        catch
+        {
+            return 0;
+        }
     }
 
     public bool SearchInItem(SaturnGame item, string filter)

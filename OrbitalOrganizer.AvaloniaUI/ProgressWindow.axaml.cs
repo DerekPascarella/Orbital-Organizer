@@ -1,4 +1,5 @@
 using Avalonia.Controls;
+using Avalonia.Markup.Xaml;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
 
@@ -42,6 +43,11 @@ public partial class ProgressWindow : Window, INotifyPropertyChanged
     {
         InitializeComponent();
         DataContext = this;
+    }
+
+    private void InitializeComponent()
+    {
+        AvaloniaXamlLoader.Load(this);
     }
 
     public void AllowClose()

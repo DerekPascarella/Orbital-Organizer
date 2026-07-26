@@ -1,6 +1,7 @@
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
+using Avalonia.Markup.Xaml;
 using MsBox.Avalonia;
 using MsBox.Avalonia.Enums;
 using MsBoxIcon = MsBox.Avalonia.Enums.Icon;
@@ -12,12 +13,20 @@ namespace OrbitalOrganizer;
 
 public partial class AboutWindow : Window
 {
+    private TextBlock TitleText = null!;
+
     public AboutWindow()
     {
         InitializeComponent();
 
-        VersionRun.Text = $"v{Constants.Version}";
+        TitleText.Text = $"Orbital Organizer v{Constants.Version}";
         KeyDown += AboutWindow_KeyDown;
+    }
+
+    private void InitializeComponent()
+    {
+        AvaloniaXamlLoader.Load(this);
+        TitleText = this.FindControl<TextBlock>("TitleText")!;
     }
 
     private void AboutWindow_KeyDown(object? sender, KeyEventArgs e)

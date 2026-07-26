@@ -1,7 +1,10 @@
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
+using Avalonia.Markup.Xaml;
 using Avalonia.Platform.Storage;
+using Avalonia.VisualTree;
 using MsBox.Avalonia;
 using MsBox.Avalonia.Enums;
 using MsBoxIcon = MsBox.Avalonia.Enums.Icon;
@@ -19,9 +22,39 @@ namespace OrbitalOrganizer;
 
 public partial class MainWindow : Window, INotifyPropertyChanged
 {
+    private DataGrid GameGrid = null!;
+    private Border DropLine = null!;
+    private TextBox FilterTextBox = null!;
+    private ComboBox DriveComboBox = null!;
+    private TextBox TempFolderTextBox = null!;
+    private CheckBox LockCheckBox = null!;
+    private RadioButton RadioRmenuKai = null!;
+    private RadioButton RadioRmenu = null!;
+    private RadioButton RadioBoth = null!;
+    private Button ButtonSort = null!;
+    private Button ButtonBatchFolderRename = null!;
+
     private readonly Manager _manager = new();
     private readonly AppSettings _settings;
     private bool _suppressMenuTypeChange;
+
+    // Root path of each drive in DriveComboBox, by index. The combo items are
+    // display labels and the path can't be recovered from them.
+    private readonly List<string> _drivePaths = new();
+
+    // Where a drop will land, worked out while the drag hovers and reused when it
+    // lands. -1 means no spot has been settled on yet.
+    private int _pendingDropIndex = -1;
+
+    // Row reorder drag state. The dragged rows ride in _rowDragItems since the drag
+    // starts and ends in this window. The marker format exists because macOS refuses
+    // a drag that declares no pasteboard types at all.
+    private static readonly DataFormat<byte[]> RowDragFormat =
+        DataFormat.CreateBytesApplicationFormat("oo-games-row-drag");
+    private PointerPressedEventArgs? _rowDragTrigger;
+    private Point _rowDragStartPoint;
+    private SaturnGame? _rowDragPressedItem;
+    private List<SaturnGame>? _rowDragItems;
 
     private bool _isBusy;
     public bool IsBusy
@@ -85,6 +118,11 @@ public partial class MainWindow : Window, INotifyPropertyChanged
 
         FilterTextBox.KeyDown += FilterTextBox_KeyDown;
         AddHandler(DragDrop.DropEvent, WindowDrop);
+        AddHandler(DragDrop.DragOverEvent, WindowDragOver);
+        AddHandler(DragDrop.DragLeaveEvent, WindowDragLeave);
+        GameGrid.AddHandler(InputElement.PointerPressedEvent, DataGrid_PointerPressed, RoutingStrategies.Tunnel);
+        GameGrid.AddHandler(InputElement.PointerReleasedEvent, DataGrid_PointerReleased, RoutingStrategies.Tunnel);
+        GameGrid.PointerMoved += DataGrid_PointerMoved;
         KeyDown += MainWindow_KeyDown;
         Closing += MainWindow_Closing;
         Opened += MainWindow_Opened;
@@ -101,6 +139,22 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         };
 
         RefreshDriveList();
+    }
+
+    private void InitializeComponent()
+    {
+        AvaloniaXamlLoader.Load(this);
+        GameGrid = this.FindControl<DataGrid>("GameGrid")!;
+        DropLine = this.FindControl<Border>("DropLine")!;
+        FilterTextBox = this.FindControl<TextBox>("FilterTextBox")!;
+        DriveComboBox = this.FindControl<ComboBox>("DriveComboBox")!;
+        TempFolderTextBox = this.FindControl<TextBox>("TempFolderTextBox")!;
+        LockCheckBox = this.FindControl<CheckBox>("LockCheckBox")!;
+        RadioRmenuKai = this.FindControl<RadioButton>("RadioRmenuKai")!;
+        RadioRmenu = this.FindControl<RadioButton>("RadioRmenu")!;
+        RadioBoth = this.FindControl<RadioButton>("RadioBoth")!;
+        ButtonSort = this.FindControl<Button>("ButtonSort")!;
+        ButtonBatchFolderRename = this.FindControl<Button>("ButtonBatchFolderRename")!;
     }
 
     private async void MainWindow_Opened(object? sender, EventArgs e)
@@ -228,6 +282,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         IsUsingCustomPath = false;
         CustomSdPath = string.Empty;
         DriveComboBox.Items.Clear();
+        _drivePaths.Clear();
 
         int autoSelectIndex = -1;
         int index = 0;
@@ -240,6 +295,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
                     ? $"{drive.Name} ({drive.VolumeLabel})"
                     : drive.Name;
                 DriveComboBox.Items.Add(label);
+                _drivePaths.Add(drive.Name);
 
                 if (autoSelectIndex == -1 && drive.IsReady)
                 {
@@ -350,10 +406,10 @@ public partial class MainWindow : Window, INotifyPropertyChanged
 
     private async void DriveList_SelectionChanged(object? sender, SelectionChangedEventArgs e)
     {
-        if (DriveComboBox.SelectedItem == null || IsBusy) return;
+        int selectedIndex = DriveComboBox.SelectedIndex;
+        if (selectedIndex < 0 || selectedIndex >= _drivePaths.Count || IsBusy) return;
 
-        string selected = DriveComboBox.SelectedItem.ToString()!;
-        string drivePath = selected.Length >= 3 ? selected[..3] : selected;
+        string drivePath = _drivePaths[selectedIndex];
 
         IsUsingCustomPath = false;
         CustomSdPath = string.Empty;
@@ -446,6 +502,10 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     {
         if (_suppressMenuTypeChange) return;
         if (sender is not RadioButton rb) return;
+
+        // IsCheckedChanged also fires for the radio that just unchecked, only the
+        // newly checked one should act.
+        if (rb.IsChecked != true) return;
 
         if (rb == RadioRmenuKai)
         {
@@ -570,13 +630,13 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         await AddGamesFromPaths(paths);
     }
 
-    private async Task AddGamesFromPaths(string[] paths)
+    private async Task AddGamesFromPaths(string[] paths, int insertIndex = -1)
     {
         IsBusy = true;
         try
         {
             string tempRoot = GetTempFolderRoot();
-            await _manager.AddGamesAsync(paths, tempFolderRoot: string.IsNullOrEmpty(tempRoot) ? null : tempRoot);
+            await _manager.AddGamesAsync(paths, insertIndex: insertIndex, tempFolderRoot: string.IsNullOrEmpty(tempRoot) ? null : tempRoot);
         }
         catch (Exception ex)
         {
@@ -821,6 +881,16 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             var regionDialog = new RegionSelectDialog();
             await regionDialog.ShowDialog(this);
             _manager.PendingConsoleRegion = regionDialog.SelectedRegionCode;
+        }
+
+        var spaceCheck = await _manager.CalculateRequiredSpaceAsync();
+        if (!spaceCheck.HasSufficientSpace)
+        {
+            var spaceBox = MessageBoxManager.GetMessageBoxStandard(
+                "Confirmation",
+                Manager.BuildSpaceWarningMessage(spaceCheck),
+                ButtonEnum.YesNo, MsBoxIcon.Warning);
+            if (await spaceBox.ShowWindowDialogAsync(this) != ButtonResult.Yes) return;
         }
 
         IsBusy = true;
@@ -1333,15 +1403,341 @@ public partial class MainWindow : Window, INotifyPropertyChanged
 
     // --- Drag and drop ---
 
+    private void DataGrid_PointerPressed(object? sender, PointerPressedEventArgs e)
+    {
+        if (!e.GetCurrentPoint(GameGrid).Properties.IsLeftButtonPressed)
+            return;
+
+        // A press inside a cell editor is for editing text, not for dragging.
+        if (e.Source is TextBox)
+            return;
+
+        // A left press on a row may turn into a reorder drag. Remember it until the
+        // pointer has moved far enough to count as one.
+        var pressSource = e.Source as Control;
+        while (pressSource != null)
+        {
+            if (pressSource is DataGridRow pressRow)
+            {
+                _rowDragPressedItem = pressRow.DataContext as SaturnGame;
+                _rowDragTrigger = _rowDragPressedItem != null ? e : null;
+                _rowDragStartPoint = e.GetPosition(this);
+                return;
+            }
+            pressSource = pressSource.Parent as Control;
+        }
+    }
+
+    private void DataGrid_PointerReleased(object? sender, PointerReleasedEventArgs e)
+    {
+        // Released without crossing the drag threshold, so this was a plain click.
+        _rowDragTrigger = null;
+        _rowDragPressedItem = null;
+    }
+
+    private async void DataGrid_PointerMoved(object? sender, PointerEventArgs e)
+    {
+        if (_rowDragTrigger == null || _rowDragItems != null)
+            return;
+
+        if (!e.GetCurrentPoint(GameGrid).Properties.IsLeftButtonPressed)
+        {
+            _rowDragTrigger = null;
+            _rowDragPressedItem = null;
+            return;
+        }
+
+        if (IsBusy || IsFilterActive || !HasSdPath || _editOldValue != null)
+            return;
+
+        var current = e.GetPosition(this);
+        if (Math.Abs(current.X - _rowDragStartPoint.X) < 4 &&
+            Math.Abs(current.Y - _rowDragStartPoint.Y) < 4)
+            return;
+
+        // Dragging a row that is part of the selection moves the whole selection.
+        var items = new List<SaturnGame>();
+        if (_rowDragPressedItem != null)
+        {
+            if (GameGrid.SelectedItems != null && GameGrid.SelectedItems.Contains(_rowDragPressedItem) &&
+                GameGrid.SelectedItems.Count > 1)
+                items.AddRange(GameGrid.SelectedItems.OfType<SaturnGame>().OrderBy(g => _manager.ItemList.IndexOf(g)));
+            else
+                items.Add(_rowDragPressedItem);
+        }
+
+        // The menu entry stays at the top of the list and never gets dragged.
+        if (items.Count == 0 || items.Any(g => g.IsMenuItem))
+        {
+            _rowDragTrigger = null;
+            _rowDragPressedItem = null;
+            return;
+        }
+
+        var trigger = _rowDragTrigger;
+        _rowDragTrigger = null;
+        _rowDragPressedItem = null;
+        _rowDragItems = items;
+
+        var data = new DataTransfer();
+        data.Add(DataTransferItem.Create(RowDragFormat, new byte[] { 1 }));
+
+        try
+        {
+            await DragDrop.DoDragDropAsync(trigger, data, DragDropEffects.Move);
+        }
+        catch (Exception)
+        {
+            // A failed platform drag just cancels the move.
+        }
+
+        _rowDragItems = null;
+        _pendingDropIndex = -1;
+        HideDropLine();
+    }
+
     private async void WindowDrop(object? sender, DragEventArgs e)
     {
-        if (IsBusy) return;
+        HideDropLine();
 
-        var files = e.Data.GetFiles()?.ToList();
-        if (files == null || files.Count == 0) return;
+        int pending = _pendingDropIndex;
+        _pendingDropIndex = -1;
 
-        var paths = files.Select(f => f.Path.LocalPath).ToArray();
-        await AddGamesFromPaths(paths);
+        if (IsBusy || IsFilterActive || !HasSdPath)
+            return;
+
+        if (_rowDragItems != null && e.DataTransfer.Contains(RowDragFormat))
+        {
+            try
+            {
+                // Reorder drop. Remove the dragged rows, walking the target index
+                // back for each one that sat above it, then put them back at the
+                // target spot.
+                int moveIndex = pending >= 0 ? pending : DefaultDropIndex();
+                moveIndex = Math.Min(moveIndex, _manager.ItemList.Count);
+
+                var oldOrder = _manager.ItemList.ToList();
+
+                foreach (var item in _rowDragItems)
+                {
+                    int idx = _manager.ItemList.IndexOf(item);
+                    if (idx < 0)
+                        continue;
+                    _manager.ItemList.RemoveAt(idx);
+                    if (idx < moveIndex)
+                        moveIndex--;
+                }
+
+                if (moveIndex == 0 && _manager.ItemList.Count > 0 && _manager.ItemList[0].IsMenuItem)
+                    moveIndex = 1;
+                moveIndex = Math.Min(moveIndex, _manager.ItemList.Count);
+
+                foreach (var item in _rowDragItems)
+                    _manager.ItemList.Insert(moveIndex++, item);
+
+                if (!oldOrder.SequenceEqual(_manager.ItemList))
+                {
+                    _manager.UndoManager.RecordChange(new ListReorderOperation("Reorder List")
+                    {
+                        ItemList = _manager.ItemList,
+                        OldOrder = oldOrder,
+                        NewOrder = _manager.ItemList.ToList()
+                    });
+                }
+            }
+            catch (Exception ex)
+            {
+                var msgBox = MessageBoxManager.GetMessageBoxStandard("Error", ex.Message, ButtonEnum.Ok, MsBoxIcon.Error);
+                await msgBox.ShowWindowDialogAsync(this);
+            }
+            return;
+        }
+
+        if (e.DataTransfer.Contains(DataFormat.File))
+        {
+            // Land the drop where the guide line settled during the drag. The drop
+            // event position is not reliable on some Linux setups, the hover
+            // position tracked in WindowDragOver is.
+            int insertIndex = pending >= 0 ? pending : DefaultDropIndex();
+            insertIndex = Math.Min(insertIndex, _manager.ItemList.Count);
+
+            var droppedItems = e.DataTransfer.TryGetFiles() ?? Array.Empty<IStorageItem>();
+            var paths = new List<string>();
+            var invalid = new List<string>();
+
+            foreach (var storageItem in droppedItems)
+            {
+                var path = storageItem.TryGetLocalPath();
+                if (path == null)
+                    invalid.Add($"{storageItem.Name} is not a local file.");
+                else
+                    paths.Add(path);
+            }
+
+            if (paths.Count > 0)
+                await AddGamesFromPaths(paths.ToArray(), insertIndex);
+
+            if (invalid.Count > 0)
+            {
+                var msgBox = MessageBoxManager.GetMessageBoxStandard("Error", string.Join(Environment.NewLine, invalid), ButtonEnum.Ok, MsBoxIcon.Error);
+                await msgBox.ShowWindowDialogAsync(this);
+            }
+        }
+    }
+
+    private void WindowDragOver(object? sender, DragEventArgs e)
+    {
+        bool isFileDrag = e.DataTransfer.Contains(DataFormat.File);
+        bool isRowDrag = _rowDragItems != null && e.DataTransfer.Contains(RowDragFormat);
+
+        if (IsBusy || IsFilterActive || !HasSdPath || (!isFileDrag && !isRowDrag))
+        {
+            _pendingDropIndex = -1;
+            HideDropLine();
+            return;
+        }
+
+        if (isRowDrag)
+            e.DragEffects = DragDropEffects.Move;
+
+        var target = HitTestDropRow(e);
+        if (target == null)
+        {
+            _pendingDropIndex = DefaultDropIndex();
+            HideDropLine();
+        }
+        else
+        {
+            _pendingDropIndex = target.Value.InsertIndex;
+            ShowDropLine(target.Value.Row, target.Value.Below);
+        }
+    }
+
+    private void WindowDragLeave(object? sender, RoutedEventArgs e)
+    {
+        // DragLeave can fire right before Drop, so the pending index is left alone
+        // here. Clearing it would snap the drop to the default spot instead of the
+        // guide line.
+        HideDropLine();
+    }
+
+    // Finds the row under the pointer and where a dropped item would land there. The
+    // upper half of a row means above it, the lower half below. The menu entry keeps
+    // the top spot, so a drop aimed at the very top lands just under it instead.
+    // Pointing at the open space under the last row lands after that row. Returns
+    // null when the pointer is off the rows entirely.
+    private (DataGridRow Row, bool Below, int InsertIndex)? HitTestDropRow(DragEventArgs e)
+    {
+        try
+        {
+            var list = _manager.ItemList;
+
+            if (GameGrid == null || !GameGrid.IsVisible)
+                return null;
+
+            var pos = e.GetPosition(GameGrid);
+            double y = pos.Y;
+
+            DataGridRow? bottomRow = null;
+            SaturnGame? bottomItem = null;
+            double bottomEdge = double.MinValue;
+
+            foreach (var row in GameGrid.GetVisualDescendants().OfType<DataGridRow>())
+            {
+                // The grid parks recycled rows in the visual tree after items are
+                // removed or another card is loaded in the same session. They still
+                // hold games that are no longer in the list, so they must not count
+                // as drop targets or as the bottom row.
+                if (!row.IsVisible)
+                    continue;
+
+                if (row.DataContext is not SaturnGame hoveredItem)
+                    continue;
+
+                int index = list.IndexOf(hoveredItem);
+                if (index < 0)
+                    continue;
+
+                var rowTop = row.TranslatePoint(new Point(0, 0), GameGrid);
+                if (rowTop == null)
+                    continue;
+
+                double top = rowTop.Value.Y;
+                double height = row.Bounds.Height;
+
+                if (top + height > bottomEdge)
+                {
+                    bottomEdge = top + height;
+                    bottomRow = row;
+                    bottomItem = hoveredItem;
+                }
+
+                if (y < top || y >= top + height)
+                    continue;
+
+                bool below = y > top + height / 2;
+                int insertIndex = below ? index + 1 : index;
+
+                if (insertIndex == 0 && list.Count > 0 && list[0].IsMenuItem)
+                {
+                    insertIndex = 1;
+                    below = true;
+                }
+
+                return (row, below, Math.Min(insertIndex, list.Count));
+            }
+
+            // The pointer is under the rows, either in the grid's empty space or
+            // past its bottom edge. Both read as plain white space to the user, so
+            // the drop lands after the lowest row, which is the last item since
+            // rows fill the view when the list is scrolled partway through.
+            if (bottomRow != null && bottomItem != null && y >= bottomEdge &&
+                pos.X >= 0 && pos.X < GameGrid.Bounds.Width)
+            {
+                int index = list.IndexOf(bottomItem);
+                if (index >= 0)
+                    return (bottomRow, true, Math.Min(index + 1, list.Count));
+            }
+
+            return null;
+        }
+        catch (Exception)
+        {
+            return null;
+        }
+    }
+
+    private void ShowDropLine(DataGridRow row, bool below)
+    {
+        if (DropLine == null || GameGrid == null)
+            return;
+
+        var top = row.TranslatePoint(new Point(0, 0), GameGrid);
+        if (top == null)
+        {
+            HideDropLine();
+            return;
+        }
+
+        double y = top.Value.Y;
+        if (below)
+            y += row.Bounds.Height;
+
+        DropLine.Margin = new Thickness(0, y - 1, 0, 0);
+        DropLine.IsVisible = true;
+    }
+
+    private void HideDropLine()
+    {
+        if (DropLine != null)
+            DropLine.IsVisible = false;
+    }
+
+    // Fallback spot for a drop that is not over any row. Anything we can't place
+    // goes to the end of the list.
+    private int DefaultDropIndex()
+    {
+        return _manager.ItemList.Count;
     }
 
     // --- Keyboard shortcuts ---

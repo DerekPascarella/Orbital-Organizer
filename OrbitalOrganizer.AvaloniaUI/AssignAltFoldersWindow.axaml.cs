@@ -1,5 +1,6 @@
 using Avalonia.Controls;
 using Avalonia.Interactivity;
+using Avalonia.Markup.Xaml;
 using MsBox.Avalonia;
 using MsBox.Avalonia.Enums;
 using MsBoxIcon = MsBox.Avalonia.Enums.Icon;
@@ -52,6 +53,10 @@ public class AltFolderEntry : INotifyPropertyChanged
 
 public partial class AssignAltFoldersWindow : Window
 {
+    private TextBlock HeaderLabel = null!;
+    private ItemsControl AltFoldersList = null!;
+    private Button AddButton = null!;
+
     private readonly string _primaryFolder;
     private readonly ObservableCollection<AltFolderEntry> _altFolders = new();
 
@@ -61,6 +66,14 @@ public partial class AssignAltFoldersWindow : Window
     {
         InitializeComponent();
         _primaryFolder = "";
+    }
+
+    private void InitializeComponent()
+    {
+        AvaloniaXamlLoader.Load(this);
+        HeaderLabel = this.FindControl<TextBlock>("HeaderLabel")!;
+        AltFoldersList = this.FindControl<ItemsControl>("AltFoldersList")!;
+        AddButton = this.FindControl<Button>("AddButton")!;
     }
 
     public AssignAltFoldersWindow(SaturnGame item, IEnumerable<string> knownFolders) : this()

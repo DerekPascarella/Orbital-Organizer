@@ -4,6 +4,8 @@
 <dict>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>English</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>10.15</string>
 	<key>CFBundleDisplayName</key>
 	<string>Orbital Organizer</string>
 	<key>CFBundleDocumentTypes</key>

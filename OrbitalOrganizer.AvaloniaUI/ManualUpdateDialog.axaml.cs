@@ -1,6 +1,7 @@
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
+using Avalonia.Markup.Xaml;
 using OrbitalOrganizer.Core;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
@@ -9,11 +10,19 @@ namespace OrbitalOrganizer;
 
 public partial class ManualUpdateDialog : Window
 {
+    private TextBlock ReasonText = null!;
+
     public string LatestTag { get; private set; } = "";
 
     public ManualUpdateDialog()
     {
         InitializeComponent();
+    }
+
+    private void InitializeComponent()
+    {
+        AvaloniaXamlLoader.Load(this);
+        ReasonText = this.FindControl<TextBlock>("ReasonText")!;
     }
 
     public ManualUpdateDialog(string latestTag, string latestVersion, ManualUpdateReason reason)

@@ -1,6 +1,7 @@
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
+using Avalonia.Markup.Xaml;
 using MsBox.Avalonia;
 using MsBox.Avalonia.Enums;
 using MsBoxIcon = MsBox.Avalonia.Enums.Icon;
@@ -12,6 +13,13 @@ namespace OrbitalOrganizer;
 
 public partial class UpdateWizardWindow : Window
 {
+    private TextBlock StatusText = null!;
+    private ProgressBar DownloadProgress = null!;
+    private TextBlock SpeedText = null!;
+    private TextBlock SizeText = null!;
+    private Button CancelDownloadButton = null!;
+    private Button InstallButton = null!;
+
     private readonly string _tag;
     private CancellationTokenSource? _cts;
     private bool _downloadComplete;
@@ -21,6 +29,17 @@ public partial class UpdateWizardWindow : Window
     {
         InitializeComponent();
         _tag = "";
+    }
+
+    private void InitializeComponent()
+    {
+        AvaloniaXamlLoader.Load(this);
+        StatusText = this.FindControl<TextBlock>("StatusText")!;
+        DownloadProgress = this.FindControl<ProgressBar>("DownloadProgress")!;
+        SpeedText = this.FindControl<TextBlock>("SpeedText")!;
+        SizeText = this.FindControl<TextBlock>("SizeText")!;
+        CancelDownloadButton = this.FindControl<Button>("CancelDownloadButton")!;
+        InstallButton = this.FindControl<Button>("InstallButton")!;
     }
 
     public UpdateWizardWindow(string tag, string version)

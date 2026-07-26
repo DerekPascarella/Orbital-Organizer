@@ -1,5 +1,6 @@
 using Avalonia.Controls;
 using Avalonia.Interactivity;
+using Avalonia.Markup.Xaml;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
@@ -33,6 +34,11 @@ public partial class AssignFolderWindow : Window, INotifyPropertyChanged
     {
         InitializeComponent();
         DataContext = this;
+    }
+
+    private void InitializeComponent()
+    {
+        AvaloniaXamlLoader.Load(this);
     }
 
     public AssignFolderWindow(int selectedCount, IEnumerable<string> knownFolders) : this()

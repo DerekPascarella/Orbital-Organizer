@@ -5,7 +5,7 @@
         mc:Ignorable="d" d:DesignWidth="450" d:DesignHeight="220"
         x:Class="OrbitalOrganizer.ManualUpdateDialog"
         Title="Information" SizeToContent="Height" Width="450"
-        CanResize="False"
+        CanResize="False" CanMinimize="False"
         WindowStartupLocation="CenterOwner">
     <Grid Margin="20">
         <Grid.RowDefinitions>

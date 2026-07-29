@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <!-- Read and parse version from version.txt (e.g. v2.0.2 -> 2.0.2.0). -->
+    <!-- Read and parse version from version.txt (e.g., v2.0.2 -> 2.0.2.0). -->
     <VersionFileContent>$([System.IO.File]::ReadAllText('$(MSBuildProjectDirectory)\..\version.txt').Trim())</VersionFileContent>
     <NumericVersion>$([System.Text.RegularExpressions.Regex]::Match('$(VersionFileContent)', '\d+\.\d+(\.\d+)?').Value)</NumericVersion>
     <HasPatch>$([System.Text.RegularExpressions.Regex]::IsMatch('$(NumericVersion)', '\d+\.\d+\.\d+'))</HasPatch>
@@ -48,8 +48,8 @@
     </Content>
   </ItemGroup>
 
-  <!-- Regenerate Constants.cs from version.txt before build (Windows only;
-       on Linux/macOS Constants.cs is reused as-is from the last Windows build). -->
+  <!-- Regenerate Constants.cs from version.txt before build. Windows only, since
+       on Linux/macOS Constants.cs is reused as-is from the last Windows build. -->
   <Target Name="UpdateVersionFromFile" BeforeTargets="BeforeBuild;BeforeRebuild"
           Condition="'$(OS)' == 'Windows_NT'">
     <Exec Command="powershell -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\UpdateVersion.ps1&quot;" />

@@ -8,6 +8,16 @@ set /p VERSION=<version.txt
 echo Building version: %VERSION%
 echo.
 
+REM Format code
+echo Formatting code...
+dotnet format OrbitalOrganizer.sln
+if %ERRORLEVEL% neq 0 goto :error
+
+REM Normalize XAML line endings (dotnet format only handles C#).
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0normalize-xaml.ps1"
+if %ERRORLEVEL% neq 0 goto :error
+echo.
+
 set OUTPUT_DIR=_releases\OrbitalOrganizer.%VERSION%-linux-x64
 
 if exist "%OUTPUT_DIR%" rd /s /q "%OUTPUT_DIR%"

@@ -1,12 +1,12 @@
-﻿// AUTO-GENERATED FILE - Version is read from ../version.txt during build.
-// Do not edit by hand - update ../version.txt for the version, or
+﻿// AUTO-GENERATED FILE. Version is read from ../version.txt during build.
+// Do not edit by hand. Update ../version.txt for the version, or
 // UpdateVersion.ps1 to change anything else in this file.
 
 namespace OrbitalOrganizer.Core;
 
 public static class Constants
 {
-    public const string Version = "2.1.0";
+    public const string Version = "2.1.1";
     public const string AppName = "Orbital Organizer";
     public const string AppDescription = "A tool to manage a Rhea/Phoebe SD card and its contents";
     public const string AppUrl = "https://github.com/DerekPascarella/Orbital-Organizer";

@@ -12,7 +12,7 @@ public static class CardScanner
     /// <summary>
     /// Scans the SD card for games, invoking a callback as each is loaded.
     /// Folder 01 is skipped (that's the menu system).
-    /// Loads from sidecar files where available; folders missing sidecars get
+    /// Loads from sidecar files where available. Folders missing sidecars get
     /// a placeholder entry (Ip will be null) for later metadata scanning.
     /// Returns the number of games found.
     /// </summary>
@@ -97,7 +97,7 @@ public static class CardScanner
 
         string folderPath = game.FullFolderPath;
 
-        // Step 1: Try to fill gaps from LIST.INI (preserves user-customized values)
+        // LIST.INI comes first since it preserves user-customized values
         if (listIniEntry != null)
         {
             if (string.IsNullOrWhiteSpace(game.Name) || game.Name == Path.GetFileName(folderPath))
@@ -131,7 +131,7 @@ public static class CardScanner
             }
         }
 
-        // Step 2: Fall back to IP.BIN for anything LIST.INI couldn't provide
+        // Fall back to IP.BIN for anything LIST.INI couldn't provide
         // (ProductID always comes from here since LIST.INI never has it)
         bool stillMissing = string.IsNullOrWhiteSpace(game.ProductId) ||
                             string.IsNullOrWhiteSpace(game.Name) || game.Name == Path.GetFileName(folderPath) ||

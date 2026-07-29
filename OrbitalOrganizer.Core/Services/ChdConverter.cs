@@ -31,7 +31,7 @@ public static class ChdConverter
             var cueContent = new System.Text.StringBuilder();
             long chdSectorOffset = 0;
 
-            // chdman stores CD-ROM audio big-endian; BIN files need little-endian.
+            // CHD v5 and later store audio big-endian, but BIN wants little-endian.
             bool swapAudio = true;
 
             for (int t = 0; t < chd.Tracks.Count; t++)

@@ -4,7 +4,7 @@ namespace OrbitalOrganizer.Core.Services;
 
 /// <summary>
 /// Strips Redump-style metadata tags from file and folder names.
-/// e.g. "Grandia (Japan) (Disc 1) (1M)" -> "Grandia"
+/// (e.g., "Grandia (Japan) (Disc 1) (1M)" -> "Grandia")
 /// </summary>
 public static class NameSanitizer
 {
@@ -27,7 +27,7 @@ public static class NameSanitizer
         @"\d+[MS]|" +
         // Multi-variant like "1M, 2M" or "8M, 13M"
         @"\d+[MS](?:,\s*\d+[MS])+|" +
-        // Special tags (strip these; Demo/Beta/Proto/Special/Omake CD are kept)
+        // Special tags to strip. Demo/Beta/Proto/Special/Omake CD are kept
         @"Unl|Sample|Rerelease|Satakore" +
         @")\)",
         RegexOptions.Compiled);
@@ -39,7 +39,7 @@ public static class NameSanitizer
 
     /// <summary>
     /// Strips Redump metadata tags and bracket tags from a name.
-    /// Only strips recognized Redump-style tags; unrecognized parentheticals are kept.
+    /// Only strips recognized Redump-style tags. Unrecognized parentheticals are kept.
     /// </summary>
     public static string Sanitize(string name)
     {

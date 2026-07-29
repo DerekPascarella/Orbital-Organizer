@@ -8,8 +8,8 @@ namespace OrbitalOrganizer.Core.Services;
 public static class MenuDetector
 {
     /// <summary>
-    /// Detects the menu system in folder 01. Only inspects folder 01 itself;
-    /// legacy RMENU instances in other folders are discovered during the
+    /// Detects the menu system in folder 01. Only folder 01 itself is inspected.
+    /// Legacy RMENU instances in other folders are discovered during the
     /// normal card scan (see Manager.LoadItemsFromCardAsync).
     /// </summary>
     public static MenuKind Detect(string sdCardPath)

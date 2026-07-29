@@ -249,8 +249,8 @@ public static class MetadataManager
 
     /// <summary>
     /// Strips legacy " - Disc N" suffixes from game titles.
-    /// orbital_organizer.pl appended these to Name.txt; we store
-    /// disc info separately in Disc.txt instead.
+    /// orbital_organizer.pl appended these to Name.txt. Disc info is
+    /// stored separately in Disc.txt instead.
     /// </summary>
     private static string StripDiscSuffix(string title)
     {

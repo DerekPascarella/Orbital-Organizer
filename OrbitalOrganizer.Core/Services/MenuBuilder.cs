@@ -12,8 +12,6 @@ public static class MenuBuilder
     /// Generates the LIST.INI file content from the game list.
     /// </summary>
     /// <param name="games">Ordered list of games (excluding the menu item at position 01).</param>
-    /// <param name="useVirtualFolderSubfolders">Whether multi-disc games should use virtual folder subfolders.</param>
-    /// <returns>The LIST.INI file content string.</returns>
     public static string GenerateListIni(IReadOnlyList<SaturnGame> games, bool useVirtualFolderSubfolders, MenuKind menuKind = MenuKind.RmenuKai)
     {
         var sb = new StringBuilder();

@@ -191,7 +191,7 @@ public static class MigrationService
 
             // Name.txt and Folder.txt are always written from LIST.INI,
             // regardless of card origin. Name.txt preserves the user's
-            // customized RMENU title; Folder.txt preserves virtual folder paths.
+            // customized RMENU title, and Folder.txt preserves virtual folder paths.
             string namePath = Path.Combine(folderPath, Constants.NameFile);
             if (!File.Exists(namePath))
                 MetadataManager.WriteTextFile(namePath, entry.Title);

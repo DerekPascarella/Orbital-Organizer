@@ -13,8 +13,8 @@ $version = (Get-Content -LiteralPath $versionFile | Out-String).Trim()
 $version = $version -replace '^[vV]', ''
 
 $constantsContent = @"
-// AUTO-GENERATED FILE - Version is read from ../version.txt during build.
-// Do not edit by hand - update ../version.txt for the version, or
+// AUTO-GENERATED FILE. Version is read from ../version.txt during build.
+// Do not edit by hand. Update ../version.txt for the version, or
 // UpdateVersion.ps1 to change anything else in this file.
 
 namespace OrbitalOrganizer.Core;

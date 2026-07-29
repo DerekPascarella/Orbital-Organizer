@@ -67,7 +67,7 @@ public class AppSettings
         }
         catch
         {
-            // Settings file might be read-only or inaccessible; silently ignore
+            // Settings file might be read-only or inaccessible, so ignore the failure
         }
     }
 

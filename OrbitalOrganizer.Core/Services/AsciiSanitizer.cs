@@ -12,7 +12,7 @@ public static class AsciiSanitizer
 {
     /// <summary>
     /// Decomposes accented characters into base + combining mark, then
-    /// drops the combining marks. e.g. "cafe\u0301" -> "cafe".
+    /// drops the combining marks (e.g., "café" -> "cafe").
     /// </summary>
     public static string RemoveDiacritics(string text)
     {
@@ -62,7 +62,7 @@ public static class AsciiSanitizer
 
     /// <summary>
     /// Strips non-printable ASCII from a product ID and truncates to 16 chars.
-    /// Unlike GDMCM we keep hyphens since Saturn serials use them (e.g. "T-14302G").
+    /// Hyphens are kept since Saturn serials use them (e.g., "T-14302G").
     /// </summary>
     public static string SanitizeProductId(string productId)
     {

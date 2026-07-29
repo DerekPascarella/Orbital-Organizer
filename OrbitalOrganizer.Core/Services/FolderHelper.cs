@@ -12,8 +12,6 @@ public static class FolderHelper
     /// being locked by another process, calls the onLocked callback for user notification
     /// and retries. Throws on non-recoverable errors.
     /// </summary>
-    /// <param name="source">Full path of source folder.</param>
-    /// <param name="destination">Full path of destination folder.</param>
     /// <param name="onLocked">Callback invoked when a lock is detected. Return true to retry, false to abort.</param>
     public static async Task MoveDirectoryAsync(string source, string destination, Func<string, Task<bool>>? onLocked = null)
     {

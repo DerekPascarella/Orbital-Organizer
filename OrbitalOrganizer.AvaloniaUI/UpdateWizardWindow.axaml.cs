@@ -127,7 +127,7 @@ public partial class UpdateWizardWindow : Window
         }
         catch (OperationCanceledException)
         {
-            // User cancelled
+            // User canceled, so the window is closing.
         }
         catch (Exception ex)
         {

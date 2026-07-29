@@ -50,7 +50,7 @@ public static class IsoBuilder
 
     /// <summary>
     /// Patches ISO 9660 Primary Volume Descriptor fields at sector 16.
-    /// CDBuilder only sets Volume Identifier; we fill in the rest.
+    /// CDBuilder only sets Volume Identifier, so the rest are filled in here.
     /// </summary>
     private static void PatchVolumeDescriptor(byte[] isoData)
     {
@@ -220,7 +220,7 @@ public static class IsoBuilder
             : Path.Combine(toolsPath, "rmenu_legacy", "0.BIN");
         File.Copy(zeroBinSource, Path.Combine(contentDir, "0.BIN"), overwrite: true);
 
-        // No BOM; rmenu_legacy chokes on the 3 leading bytes.
+        // No BOM, since rmenu_legacy chokes on the 3 leading bytes.
         File.WriteAllText(Path.Combine(contentDir, "LIST.INI"), listIniContent, new UTF8Encoding(false));
 
         return contentDir;

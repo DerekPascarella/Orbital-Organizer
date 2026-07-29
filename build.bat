@@ -14,6 +14,10 @@ REM Format code
 echo Formatting code...
 dotnet format OrbitalOrganizer.sln
 if %ERRORLEVEL% neq 0 goto :error
+
+REM Normalize XAML line endings (dotnet format only handles C#).
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0normalize-xaml.ps1"
+if %ERRORLEVEL% neq 0 goto :error
 echo.
 
 REM Clean previous builds

@@ -436,12 +436,20 @@ public static class UpdateManager
         Environment.Exit(0);
     }
 
+    // The script templates below are verbatim string literals, so their line endings are
+    // whatever this source file happens to be saved with. Pinning them here keeps cmd.exe
+    // and bash working no matter how the file is stored.
+    private static string WithLineEndings(string text, string lineEnding)
+    {
+        return text.Replace("\r\n", "\n").Replace('\r', '\n').Replace("\n", lineEnding);
+    }
+
     private static string GenerateWindowsScript(int pid, string processName, string extractedDir, string appDir)
     {
         var escaped_extracted = extractedDir.Replace("/", "\\");
         var escaped_app = appDir.TrimEnd('\\').Replace("/", "\\");
 
-        return $@"@echo off
+        return WithLineEndings($@"@echo off
 :waitloop
 tasklist /FI ""PID eq {pid}"" 2>NUL | find /I ""{processName}"" >NUL
 if not errorlevel 1 (
@@ -457,14 +465,14 @@ rmdir /S /Q ""{GetStagingDir().Replace("/", "\\")}""
 start """" ""{Path.Combine(escaped_app, "OrbitalOrganizer.exe")}""
 
 del ""%~f0""
-";
+", "\r\n");
     }
 
     private static string GenerateUnixScript(int pid, string extractedDir, string appDir)
     {
         var escaped_app = appDir.TrimEnd('/');
 
-        return $@"#!/bin/bash
+        return WithLineEndings($@"#!/bin/bash
 
 # Wait for the app to exit
 while kill -0 {pid} 2>/dev/null; do
@@ -485,7 +493,7 @@ chmod +x ""{escaped_app}/OrbitalOrganizer""
 
 # Delete this script
 rm ""$0""
-";
+", "\n");
     }
 
     public static void CleanupStaleStagingData()

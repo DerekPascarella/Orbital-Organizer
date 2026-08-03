@@ -1358,9 +1358,11 @@ public partial class MainWindow : Window, GongSolutions.Wpf.DragDrop.IDropTarget
             return;
         }
 
-        if (e.Column is DataGridTextColumn col && e.Row.DataContext is SaturnGame g)
+        // The Folder column is a template column, so this must not be
+        // restricted to DataGridTextColumn.
+        if (e.Row.DataContext is SaturnGame g)
         {
-            _editOldValue = col.Header?.ToString() switch
+            _editOldValue = e.Column.Header?.ToString() switch
             {
                 "Title" => g.Name,
                 "Folder" => g.Folder,
@@ -1379,7 +1381,12 @@ public partial class MainWindow : Window, GongSolutions.Wpf.DragDrop.IDropTarget
         // Editing ended, whatever the outcome.
         _isCellEditing = false;
 
-        if (e.EditAction == DataGridEditAction.Cancel) return;
+        if (e.EditAction == DataGridEditAction.Cancel)
+        {
+            _editOldValue = null;
+            return;
+        }
+
         if (e.Row.DataContext is not SaturnGame game) return;
         if (_editOldValue == null) return;
 

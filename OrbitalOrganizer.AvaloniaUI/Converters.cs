@@ -9,6 +9,7 @@ public static class Converters
     public static readonly IValueConverter ByteSizeConverter = new ByteSizeToStringConverter();
     public static readonly IValueConverter DropTargetBackground = new DropTargetBrushConverter("#ADD8E6");
     public static readonly IValueConverter DropTargetBorderBrush = new DropTargetBrushConverter("#4682B4");
+    public static readonly IValueConverter RowMatchBackground = new DropTargetBrushConverter("#FBF0C4", "White");
 }
 
 public class ByteSizeToStringConverter : IValueConverter
@@ -36,15 +37,17 @@ public class ByteSizeToStringConverter : IValueConverter
 public class DropTargetBrushConverter : IValueConverter
 {
     private readonly IBrush _highlight;
+    private readonly IBrush _normal;
 
-    public DropTargetBrushConverter(string highlightColor)
+    public DropTargetBrushConverter(string highlightColor, string? normalColor = null)
     {
         _highlight = new SolidColorBrush(Color.Parse(highlightColor));
+        _normal = normalColor == null ? Brushes.Transparent : new SolidColorBrush(Color.Parse(normalColor));
     }
 
     public object? Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
     {
-        return value is true ? _highlight : Brushes.Transparent;
+        return value is true ? _highlight : _normal;
     }
 
     public object? ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)

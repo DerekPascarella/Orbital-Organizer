@@ -153,6 +153,7 @@
                         <Label VerticalAlignment="Center">Search/Filter</Label>
                         <TextBox Grid.Column="1" x:Name="FilterTextBox" Width="200" MaxLength="256" Margin="10,0,0,0"
                                  VerticalContentAlignment="Center"
+                                 Text="{Binding SearchText, Mode=TwoWay}"
                                  IsEnabled="{Binding HasSdPath, Mode=OneWay}"/>
                         <Button Grid.Column="2" Width="30" Margin="10,0,0,0" Click="ButtonSearch_Click"
                                 ToolTip.Tip="Search by title or serial (navigate to next match)"
@@ -203,6 +204,7 @@
                     <DataGrid.Styles>
                         <Style Selector="DataGridRow">
                             <Setter Property="ContextMenu" Value="{DynamicResource rowmenu}"/>
+                            <Setter Property="Background" Value="{Binding IsMatch, Converter={x:Static local:Converters.RowMatchBackground}}"/>
                         </Style>
                     </DataGrid.Styles>
                     <DataGrid.Resources>
@@ -245,7 +247,9 @@
                         <DataGridTemplateColumn Header="Title" Width="2*">
                             <DataGridTemplateColumn.CellTemplate>
                                 <DataTemplate>
-                                    <TextBlock Text="{Binding Name, Mode=OneWay}" VerticalAlignment="Center"/>
+                                    <TextBlock VerticalAlignment="Center"
+                                               local:HighlightBehavior.SourceText="{Binding Name, Mode=OneWay}"
+                                               local:HighlightBehavior.Query="{Binding $parent[Window].DataContext.SearchText, Mode=OneWay}"/>
                                 </DataTemplate>
                             </DataGridTemplateColumn.CellTemplate>
                             <DataGridTemplateColumn.CellEditingTemplate>
@@ -269,7 +273,9 @@
                         <DataGridTemplateColumn Header="Product ID" Width="85">
                             <DataGridTemplateColumn.CellTemplate>
                                 <DataTemplate>
-                                    <TextBlock Text="{Binding ProductId, Mode=OneWay}" VerticalAlignment="Center"/>
+                                    <TextBlock VerticalAlignment="Center"
+                                               local:HighlightBehavior.SourceText="{Binding ProductId, Mode=OneWay}"
+                                               local:HighlightBehavior.Query="{Binding $parent[Window].DataContext.SearchText, Mode=OneWay}"/>
                                 </DataTemplate>
                             </DataGridTemplateColumn.CellTemplate>
                             <DataGridTemplateColumn.CellEditingTemplate>

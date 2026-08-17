@@ -95,6 +95,19 @@ public class Manager : INotifyPropertyChanged
     public string? PendingConsoleRegion { get; set; }
 
     /// <summary>
+    /// Callback for choosing when archive metadata should be read. The UI
+    /// sets this to show a dialog. Invoked with the number of archives when
+    /// two or more are added at once.
+    /// </summary>
+    public Func<int, Task<ArchiveAddMode>>? OnChooseArchiveAddMode { get; set; }
+
+    /// <summary>
+    /// Callback for non-fatal archive warnings (e.g., an archive holding
+    /// more than one disc image). The UI sets this to show a message box.
+    /// </summary>
+    public Func<string, Task>? OnArchiveWarning { get; set; }
+
+    /// <summary>
     /// Scans the SD card and populates ItemList.
     /// </summary>
     public async Task LoadItemsFromCardAsync()
@@ -206,6 +219,23 @@ public class Manager : INotifyPropertyChanged
             // Renumber and move game folders
             await RenumberFoldersAsync(progress);
 
+            // Copy new items to the SD card (with CUE/BIN conversion if
+            // applicable) before LIST.INI is generated, so deferred archive
+            // rows resolve their metadata in time to appear in the menu.
+            // A copy failure is rethrown only after the menu is rebuilt,
+            // because the folders were already renumbered above and a stale
+            // menu would map every slot to the wrong folder.
+            System.Runtime.ExceptionServices.ExceptionDispatchInfo? copyFailure = null;
+            int processed = 0;
+            try
+            {
+                await CopyNewItemsAsync(progress, itemProgress, processed, tempRoot);
+            }
+            catch (Exception ex)
+            {
+                copyFailure = System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(ex);
+            }
+
             // Build and write LIST.INI
             var gamesList = ItemList.Where(g => !g.IsMenuItem && (!g.IsLegacyRmenu || MenuKindSelected == MenuKind.Both)).ToList();
             string listIni = MenuBuilder.GenerateListIni(gamesList, UseVirtualFolderSubfolders, MenuKindSelected);
@@ -230,9 +260,7 @@ public class Manager : INotifyPropertyChanged
                 }
             }
 
-            // Copy new items to the SD card (with CUE/BIN conversion if applicable)
-            int processed = 0;
-            await CopyNewItemsAsync(progress, itemProgress, processed, tempRoot);
+            copyFailure?.Throw();
 
             // Patch product IDs where changed
             await PatchProductIdsAsync(progress);
@@ -260,9 +288,22 @@ public class Manager : INotifyPropertyChanged
     /// Adds game(s) from file paths (disc images or folders containing them).
     /// New items are staged with SdNumber = 0 and WorkMode = New.
     /// </summary>
-    public async Task<List<SaturnGame>> AddGamesAsync(string[] paths, IProgress<string>? progress = null, int insertIndex = -1, string? tempFolderRoot = null)
+    public async Task<List<SaturnGame>> AddGamesAsync(string[] paths, IProgress<string>? progress = null, int insertIndex = -1)
     {
         var added = new List<SaturnGame>();
+
+        // Bulk archive adds get to choose between reading metadata now or
+        // deferring it to save time. A single archive is always parsed now.
+        var mode = ArchiveAddMode.ParseNow;
+        int archiveCount = paths.Count(p => File.Exists(p) && Services.ArchiveHelper.IsArchive(p));
+        if (archiveCount >= 2 && OnChooseArchiveAddMode != null)
+        {
+            mode = await OnChooseArchiveAddMode(archiveCount);
+            if (mode == ArchiveAddMode.Cancel)
+                return added;
+        }
+
+        var archiveWarnings = new List<string>();
 
         foreach (var path in paths)
         {
@@ -276,7 +317,7 @@ public class Manager : INotifyPropertyChanged
             }
             else if (File.Exists(path) && Services.ArchiveHelper.IsArchive(path))
             {
-                game = await Task.Run(() => LoadGameFromArchive(path, tempFolderRoot));
+                game = await Task.Run(() => LoadGameFromArchive(path, mode, archiveWarnings));
             }
             else if (File.Exists(path))
             {
@@ -312,6 +353,12 @@ public class Manager : INotifyPropertyChanged
             foreach (var game in added)
                 undoOp.Items.Add((game, ItemList.IndexOf(game)));
             UndoManager.RecordChange(undoOp);
+        }
+
+        if (OnArchiveWarning != null)
+        {
+            foreach (var warning in archiveWarnings)
+                await OnArchiveWarning(warning);
         }
 
         return added;
@@ -724,6 +771,8 @@ public class Manager : INotifyPropertyChanged
             game.FullFolderPath = destFolder;
             game.WorkMode = WorkMode.None;
             game.FileFormat = FileFormat.Uncompressed;
+            game.InnerFileFormat = null;
+            game.SelectedArchiveEntry = null;
 
             // Re-populate image files from the new location
             game.ImageFiles.Clear();
@@ -771,7 +820,13 @@ public class Manager : INotifyPropertyChanged
         try
         {
             progress?.Report($"Extracting {Path.GetFileName(archivePath)}...");
-            await Task.Run(() => Services.ArchiveHelper.ExtractArchive(archivePath, tempExtractDir));
+            await Task.Run(() =>
+            {
+                if (game.SelectedArchiveEntry != null)
+                    Services.ArchiveHelper.ExtractArchiveForEntry(archivePath, tempExtractDir, game.SelectedArchiveEntry);
+                else
+                    Services.ArchiveHelper.ExtractArchive(archivePath, tempExtractDir);
+            });
 
             Directory.CreateDirectory(destFolder);
 
@@ -818,11 +873,83 @@ public class Manager : INotifyPropertyChanged
                     }
                 }
             }
+
+            // Deferred rows read their metadata here, while the extracted
+            // sidecar text files are still on disk.
+            if (game.IsArchiveMetadataPending)
+            {
+                progress?.Report($"Reading metadata: {game.Name}...");
+                await Task.Run(() => ResolveDeferredArchiveMetadata(game, destFolder, tempExtractDir));
+            }
         }
         finally
         {
             try { Directory.Delete(tempExtractDir, recursive: true); } catch { }
         }
+    }
+
+    /// <summary>
+    /// Fills a deferred archive row from the disc image just copied to the
+    /// SD card, plus any sidecar text files that were packed in the archive.
+    /// Fields still holding their provisional values take the parsed ones,
+    /// while fields the user edited before saving are kept.
+    /// </summary>
+    private static void ResolveDeferredArchiveMetadata(SaturnGame game, string destFolder, string extractedFolder)
+    {
+        var provisional = game.PendingArchiveValues;
+        if (provisional == null)
+        {
+            game.IsArchiveMetadataPending = false;
+            return;
+        }
+
+        bool nameEdited = game.Name != provisional.Name;
+        bool productIdEdited = game.ProductId != provisional.ProductId;
+        bool discEdited = game.Disc != provisional.Disc;
+        bool regionEdited = game.Region != provisional.Region;
+        bool versionEdited = game.Version != provisional.Version;
+        bool dateEdited = game.ReleaseDate != provisional.ReleaseDate;
+
+        var (offset, filePath) = IpBinParser.FindIpBinInFolder(destFolder);
+        if (offset >= 0 && filePath != null)
+        {
+            var ip = IpBinParser.ParseHeader(filePath, offset);
+            game.Ip = ip;
+
+            if (!nameEdited) game.Name = ip.Title;
+            if (!productIdEdited) game.ProductId = ip.ProductId;
+            if (!discEdited) game.Disc = ip.Disc;
+            if (!regionEdited) game.Region = ip.Region;
+            if (!versionEdited) game.Version = ip.Version;
+            if (!dateEdited) game.ReleaseDate = ip.ReleaseDate;
+        }
+
+        // Sidecar text files packed in the archive override parsed values,
+        // as they did when the peek extraction fed them to LoadGameFromSource.
+        var sidecar = MetadataManager.ReadFromFolder(extractedFolder);
+        if (sidecar != null)
+        {
+            if (!nameEdited && !string.IsNullOrWhiteSpace(sidecar.Name))
+                game.Name = sidecar.Name;
+            if (string.IsNullOrWhiteSpace(game.Folder) && !string.IsNullOrWhiteSpace(sidecar.Folder))
+                game.Folder = sidecar.Folder;
+            if (!productIdEdited && !string.IsNullOrWhiteSpace(sidecar.ProductId))
+                game.ProductId = sidecar.ProductId;
+
+            if (!discEdited && File.Exists(Path.Combine(extractedFolder, Constants.DiscFile)))
+                game.Disc = sidecar.Disc;
+            if (!regionEdited && File.Exists(Path.Combine(extractedFolder, Constants.RegionFile)))
+                game.Region = sidecar.Region;
+            if (!versionEdited && File.Exists(Path.Combine(extractedFolder, Constants.VersionFile)))
+                game.Version = sidecar.Version;
+            if (!dateEdited && File.Exists(Path.Combine(extractedFolder, Constants.DateFile)))
+                game.ReleaseDate = sidecar.ReleaseDate;
+        }
+
+        // Cleared only after resolution ran, so a save that failed earlier
+        // still resolves this row on the retry.
+        game.IsArchiveMetadataPending = false;
+        game.PendingArchiveValues = null;
     }
 
     private async Task ConvertChdAndCopyAsync(SaturnGame game, string destFolder, IProgress<string>? progress, string? tempFolderRoot = null)
@@ -963,9 +1090,17 @@ public class Manager : INotifyPropertyChanged
 
         SaturnGame game;
 
+        // CHD needs libchdr to extract IP.BIN
+        IpBin? ip = null;
         if (offset >= 0 && filePath != null)
         {
-            var ip = IpBinParser.ParseHeader(filePath, offset);
+            ip = Path.GetExtension(filePath).Equals(".chd", StringComparison.OrdinalIgnoreCase)
+                ? IpBinParser.ParseHeaderFromChd(filePath)
+                : IpBinParser.ParseHeader(filePath, offset);
+        }
+
+        if (ip != null)
+        {
             game = new SaturnGame
             {
                 Name = ip.Title,
@@ -1069,57 +1204,379 @@ public class Manager : INotifyPropertyChanged
     }
 
     /// <summary>
-    /// Peeks inside an archive to find a disc image, then creates a staged
-    /// SaturnGame entry. The archive itself is stored as the source and
-    /// extracted later during save.
+    /// Builds a staged SaturnGame entry from an archive's entry table without
+    /// extracting it. Metadata comes from bounded reads inside the archive,
+    /// or is deferred to save time (DeferToSave mode, or when the bounded
+    /// reads cannot produce it, e.g., for a solid RAR).
     /// </summary>
-    private SaturnGame? LoadGameFromArchive(string archivePath, string? tempFolderRoot = null)
+    private SaturnGame? LoadGameFromArchive(string archivePath, ArchiveAddMode mode, List<string> warnings)
     {
-        var discImage = Services.ArchiveHelper.FindDiscImageInArchive(archivePath);
-        if (discImage == null)
+        var allEntries = Services.ArchiveHelper.GetArchiveEntries(archivePath);
+        var entries = FilterNormalizableEntries(allEntries);
+
+        var imageEntries = entries.Where(e =>
+        {
+            var ext = GetEntryExtension(e);
+            return Constants.AllImageExtensions.Contains(ext) || ext == ".chd";
+        }).ToList();
+
+        if (imageEntries.Count == 0)
             return null;
 
-        // Extract to a temp directory so we can parse IP.BIN
-        string tempRoot = !string.IsNullOrEmpty(tempFolderRoot) && Directory.Exists(tempFolderRoot)
-            ? tempFolderRoot
-            : Path.GetTempPath();
-        string tempDir = Path.Combine(tempRoot,
-            "OrbitalOrganizer_peek_" + Guid.NewGuid().ToString("N")[..8]);
+        var selected = SelectPrimaryImageEntry(imageEntries, out var innerFormat);
 
+        var warning = BuildMultiImageWarning(archivePath, imageEntries, selected);
+        if (warning != null)
+            warnings.Add(warning);
+
+        IpBin? ip = null;
+        if (mode != ArchiveAddMode.DeferToSave)
+            ip = TryReadArchiveIpBin(archivePath, entries, selected, innerFormat);
+
+        SaturnGame game;
+
+        if (ip != null)
+        {
+            game = new SaturnGame
+            {
+                Name = ip.Title,
+                ProductId = ip.ProductId,
+                Disc = ip.Disc,
+                Region = ip.Region,
+                Version = ip.Version,
+                ReleaseDate = ip.ReleaseDate,
+                Ip = ip,
+                SourcePath = archivePath
+            };
+
+            ApplyArchiveSidecarOverrides(archivePath, entries, selected, game);
+        }
+        else
+        {
+            game = new SaturnGame
+            {
+                Name = Path.GetFileNameWithoutExtension(archivePath),
+                ProductId = "NA",
+                Disc = "1/1",
+                Region = "NA",
+                Version = "NA",
+                ReleaseDate = "NA",
+                SourcePath = archivePath
+            };
+
+            // The snapshot is taken before sidecar overrides so overridden
+            // fields survive the save-time resolution like user edits do.
+            game.IsArchiveMetadataPending = true;
+            game.PendingArchiveValues = new ArchiveProvisionalValues
+            {
+                Name = game.Name,
+                ProductId = game.ProductId,
+                Disc = game.Disc,
+                Region = game.Region,
+                Version = game.Version,
+                ReleaseDate = game.ReleaseDate
+            };
+
+            if (mode != ArchiveAddMode.DeferToSave)
+                ApplyArchiveSidecarOverrides(archivePath, entries, selected, game);
+        }
+
+        game.InnerFileFormat = innerFormat;
+        game.FileFormat = FileFormat.Compressed;
+        game.SelectedArchiveEntry = selected;
+
+        // Store the archive path as the sole image file reference for now
+        game.ImageFiles.Add(archivePath);
+
+        // Show the uncompressed size so the user knows actual SD card
+        // usage, measured from what save-time extraction will pull out.
+        long length;
         try
         {
-            Services.ArchiveHelper.ExtractArchive(archivePath, tempDir);
-
-            // Try to load game metadata from extracted files
-            var game = LoadGameFromSource(tempDir, specificFile: null);
-            if (game == null)
-                return null;
-
-            // Fall back to the archive name when no title was parsed
-            if (game.Name == Path.GetFileName(tempDir))
-                game.Name = Path.GetFileNameWithoutExtension(archivePath);
-
-            // Grab the uncompressed size from the extracted files before cleanup
-            long uncompressedSize = game.Length;
-
-            // Point source back to the archive file (not the temp dir)
-            game.SourcePath = archivePath;
-            game.InnerFileFormat = game.FileFormat;
-            game.FileFormat = FileFormat.Compressed;
-
-            // Store the archive path as the sole image file reference for now
-            game.ImageFiles.Clear();
-            game.ImageFiles.Add(archivePath);
-
-            // Show the uncompressed size so the user knows actual SD card usage
-            game.Length = uncompressedSize;
-
-            return game;
+            length = ArchiveEntrySelection.SelectForFlatExtraction(allEntries, selected)
+                .Where(IsSizeCountedEntry)
+                .Sum(e => e.Size);
         }
-        finally
+        catch (InvalidDataException)
         {
-            try { Directory.Delete(tempDir, recursive: true); } catch { }
+            length = entries.Where(IsSizeCountedEntry).Sum(e => e.Size);
         }
+        game.Length = length;
+
+        return game;
+    }
+
+    /// <summary>
+    /// Drops entries whose key cannot be normalized (rooted paths, keys
+    /// escaping the archive root). Original ordinals are kept.
+    /// </summary>
+    private static IReadOnlyList<ArchiveEntryInfo> FilterNormalizableEntries(IReadOnlyList<ArchiveEntryInfo> allEntries)
+    {
+        var result = new List<ArchiveEntryInfo>();
+
+        foreach (var entry in allEntries)
+        {
+            try
+            {
+                ArchiveEntryPath.NormalizeKey(entry.FullName);
+            }
+            catch (ArgumentException)
+            {
+                continue;
+            }
+
+            result.Add(entry);
+        }
+
+        return result;
+    }
+
+    private static string GetEntryExtension(ArchiveEntryInfo entry)
+    {
+        return Path.GetExtension(ArchiveEntryPath.GetLeafName(entry.FullName)).ToLowerInvariant();
+    }
+
+    /// <summary>
+    /// Files whose sizes made up an archive row's Length before this port:
+    /// everything the save-time copy step can put on the SD card.
+    /// </summary>
+    private static bool IsSizeCountedEntry(ArchiveEntryInfo entry)
+    {
+        var ext = GetEntryExtension(entry);
+        return Constants.AllImageExtensions.Contains(ext) ||
+               ext == ".img" || ext == ".sub" || ext == ".bin" || ext == ".chd";
+    }
+
+    /// <summary>
+    /// Picks the archive entry that anchors extraction, preferring set
+    /// manifests over their data files, and reports the inner format the
+    /// same way scanning an extracted folder would.
+    /// </summary>
+    private static ArchiveEntryInfo SelectPrimaryImageEntry(List<ArchiveEntryInfo> imageEntries, out FileFormat innerFormat)
+    {
+        var ccd = imageEntries.FirstOrDefault(e => GetEntryExtension(e) == ".ccd");
+        if (ccd != null)
+        {
+            innerFormat = FileFormat.CloneCd;
+            return ccd;
+        }
+
+        var cue = imageEntries.FirstOrDefault(e => GetEntryExtension(e) == ".cue");
+        if (cue != null)
+        {
+            innerFormat = FileFormat.CueBin;
+            return cue;
+        }
+
+        var chd = imageEntries.FirstOrDefault(e => GetEntryExtension(e) == ".chd");
+        if (chd != null)
+        {
+            innerFormat = FileFormat.Chd;
+            return chd;
+        }
+
+        innerFormat = FileFormat.Uncompressed;
+        return imageEntries[0];
+    }
+
+    private static string? BuildMultiImageWarning(string archivePath, List<ArchiveEntryInfo> imageEntries, ArchiveEntryInfo selected)
+    {
+        // Manifest-style formats each represent a separate disc image. Plain
+        // data images (.iso, .mdf, .img) only count when no manifest is
+        // present, since they are usually companions (e.g., the .img of a
+        // .ccd set).
+        var manifestExtensions = new[] { ".ccd", ".cue", ".chd", ".cdi" };
+        int imageCount = imageEntries.Count(e => manifestExtensions.Contains(GetEntryExtension(e)));
+        if (imageCount == 0)
+            imageCount = imageEntries.Count;
+        if (imageCount <= 1)
+            return null;
+
+        return $"Archive \"{Path.GetFileName(archivePath)}\" contains {imageCount} disc images. " +
+               $"Only \"{ArchiveEntryPath.GetLeafName(selected.FullName)}\" will be added.";
+    }
+
+    /// <summary>
+    /// Reads IP.BIN from inside an archive using bounded prefix reads.
+    /// Returns null when it cannot (metadata then resolves during save).
+    /// </summary>
+    private static IpBin? TryReadArchiveIpBin(string archivePath, IReadOnlyList<ArchiveEntryInfo> entries, ArchiveEntryInfo selected, FileFormat innerFormat)
+    {
+        // A CHD cannot be read in place (libchdr needs a real seekable
+        // file), so its metadata resolves during save.
+        if (innerFormat == FileFormat.Chd)
+            return null;
+
+        foreach (var candidate in CollectIpBinCandidates(archivePath, entries, selected, innerFormat))
+        {
+            var bytes = Services.ArchiveHelper.ReadArchiveEntryBytes(archivePath, candidate, IpBinParser.MaxSearchBytes);
+            if (bytes == null)
+                continue;
+
+            int magicOffset = IpBinParser.FindMagicOffset(bytes, bytes.Length);
+            if (magicOffset >= 0)
+                return IpBinParser.ParseHeaderFromBytes(bytes, magicOffset);
+        }
+
+        return null;
+    }
+
+    private static List<ArchiveEntryInfo> CollectIpBinCandidates(string archivePath, IReadOnlyList<ArchiveEntryInfo> entries, ArchiveEntryInfo selected, FileFormat innerFormat)
+    {
+        var candidates = new List<ArchiveEntryInfo>();
+        string selectedDir = ArchiveEntryPath.GetDirectoryKey(selected.FullName);
+
+        if (innerFormat == FileFormat.CloneCd)
+        {
+            // The IP.BIN of a CloneCD set lives in the .img companion.
+            string baseName = Path.GetFileNameWithoutExtension(ArchiveEntryPath.GetLeafName(selected.FullName));
+            var sameDirImgs = entries.Where(e =>
+                GetEntryExtension(e) == ".img" &&
+                string.Equals(ArchiveEntryPath.GetDirectoryKey(e.FullName), selectedDir, StringComparison.OrdinalIgnoreCase)).ToList();
+
+            var companion = sameDirImgs.FirstOrDefault(e => string.Equals(
+                Path.GetFileNameWithoutExtension(ArchiveEntryPath.GetLeafName(e.FullName)),
+                baseName, StringComparison.OrdinalIgnoreCase));
+            if (companion != null)
+                candidates.Add(companion);
+
+            foreach (var img in sameDirImgs)
+            {
+                if (!candidates.Contains(img))
+                    candidates.Add(img);
+            }
+        }
+        else if (innerFormat == FileFormat.CueBin)
+        {
+            var cueBytes = Services.ArchiveHelper.ReadArchiveEntryBytes(archivePath, selected, IpBinParser.MaxSearchBytes);
+            if (cueBytes != null)
+            {
+                string cueText = DecodeUtf8Text(cueBytes);
+                foreach (var referencedName in CueSheetParser.GetReferencedFileNames(cueText))
+                {
+                    var referenced = ArchiveEntryPath.FindRelativeEntry(entries, selected, referencedName);
+                    if (referenced == null)
+                        continue;
+
+                    var ext = GetEntryExtension(referenced);
+                    if (ext == ".cue" || ext == ".ccd" || ext == ".sub" || ext == ".mds")
+                        continue;
+
+                    if (!candidates.Contains(referenced))
+                        candidates.Add(referenced);
+                }
+            }
+
+            if (candidates.Count == 0)
+            {
+                // Cue text unavailable (e.g., solid RAR): fall back to the
+                // data files stored beside it.
+                candidates.AddRange(entries.Where(e =>
+                {
+                    var ext = GetEntryExtension(e);
+                    return (ext == ".bin" || ext == ".iso" || ext == ".img") &&
+                           string.Equals(ArchiveEntryPath.GetDirectoryKey(e.FullName), selectedDir, StringComparison.OrdinalIgnoreCase);
+                }));
+            }
+        }
+        else
+        {
+            // Only the selected image reaches the SD card, so no other
+            // entry may supply the metadata.
+            candidates.Add(selected);
+        }
+
+        // The IP.BIN lives in the first data track, so probing further
+        // candidates only burns decompression work on solid archives.
+        const int maxCandidates = 2;
+        if (candidates.Count > maxCandidates)
+            candidates.RemoveRange(maxCandidates, candidates.Count - maxCandidates);
+
+        return candidates;
+    }
+
+    /// <summary>
+    /// Applies sidecar text files stored inside the archive as overrides,
+    /// matching what extracting them next to the disc image used to do.
+    /// </summary>
+    private static void ApplyArchiveSidecarOverrides(string archivePath, IReadOnlyList<ArchiveEntryInfo> entries, ArchiveEntryInfo selected, SaturnGame game)
+    {
+        string? name = ReadArchiveSidecarText(archivePath, entries, selected, Constants.NameFile);
+        if (!string.IsNullOrWhiteSpace(name))
+            game.Name = MetadataManager.StripDiscSuffix(name.Trim());
+
+        string? folder = ReadArchiveSidecarText(archivePath, entries, selected, Constants.FolderFile);
+        if (!string.IsNullOrWhiteSpace(folder))
+            game.Folder = folder.Trim().Replace('/', '\\').Trim('\\');
+
+        string? productId = ReadArchiveSidecarText(archivePath, entries, selected, Constants.ProductIdFile);
+        if (!string.IsNullOrWhiteSpace(productId))
+            game.ProductId = productId.Trim();
+
+        string? disc = ReadArchiveSidecarText(archivePath, entries, selected, Constants.DiscFile);
+        if (disc != null)
+            game.Disc = disc.Trim();
+
+        string? region = ReadArchiveSidecarText(archivePath, entries, selected, Constants.RegionFile);
+        if (region != null)
+            game.Region = region.Trim();
+
+        string? version = ReadArchiveSidecarText(archivePath, entries, selected, Constants.VersionFile);
+        if (version != null)
+            game.Version = version.Trim();
+
+        string? date = ReadArchiveSidecarText(archivePath, entries, selected, Constants.DateFile);
+        if (date != null)
+            game.ReleaseDate = date.Trim();
+    }
+
+    private static string? ReadArchiveSidecarText(string archivePath, IReadOnlyList<ArchiveEntryInfo> entries, ArchiveEntryInfo selected, string sidecarFileName)
+    {
+        // Sidecar text files are tiny. Anything bigger is not a sidecar.
+        const long maxSidecarBytes = 4096;
+
+        // Only sidecars stored beside the selected image or at the archive
+        // root apply, so another game's files cannot bleed in. The image's
+        // own directory wins over the root.
+        string selectedDir = ArchiveEntryPath.GetDirectoryKey(selected.FullName);
+
+        ArchiveEntryInfo? match = null;
+        foreach (var entry in entries)
+        {
+            if (entry.Size > maxSidecarBytes)
+                continue;
+            if (!string.Equals(ArchiveEntryPath.GetLeafName(entry.FullName), sidecarFileName, StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            string directory = ArchiveEntryPath.GetDirectoryKey(entry.FullName);
+            bool inSelectedDirectory = selectedDir.Length > 0 &&
+                string.Equals(directory, selectedDir, StringComparison.OrdinalIgnoreCase);
+            if (inSelectedDirectory)
+            {
+                match = entry;
+                break;
+            }
+            if (directory.Length == 0)
+                match ??= entry;
+        }
+
+        if (match == null)
+            return null;
+
+        var bytes = Services.ArchiveHelper.ReadArchiveEntryBytes(archivePath, match, maxSidecarBytes);
+        return bytes == null ? null : DecodeUtf8Text(bytes);
+    }
+
+    /// <summary>
+    /// Decodes UTF-8 text, stripping the byte order mark the way
+    /// "File.ReadAllText" would have.
+    /// </summary>
+    private static string DecodeUtf8Text(byte[] bytes)
+    {
+        if (bytes.Length >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF)
+            return Encoding.UTF8.GetString(bytes, 3, bytes.Length - 3);
+
+        return Encoding.UTF8.GetString(bytes);
     }
 
     private SaturnGame? LoadGameFromChd(string chdPath, string sourcePath)

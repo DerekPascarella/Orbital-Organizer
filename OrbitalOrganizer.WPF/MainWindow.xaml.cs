@@ -59,6 +59,13 @@ public partial class MainWindow : Window, GongSolutions.Wpf.DragDrop.IDropTarget
         set { _isFilterActive = value; RaisePropertyChanged(); }
     }
 
+    private string _searchText = string.Empty;
+    public string SearchText
+    {
+        get => _searchText;
+        set { _searchText = value ?? string.Empty; RaisePropertyChanged(); UpdateSearchMatches(); }
+    }
+
     public System.Collections.ObjectModel.ObservableCollection<string> KnownFolders => _manager.KnownFolders;
 
     public UndoManager UndoManager => _manager.UndoManager;
@@ -85,7 +92,7 @@ public partial class MainWindow : Window, GongSolutions.Wpf.DragDrop.IDropTarget
 
         GameGrid.ItemsSource = _manager.ItemList;
 
-        _manager.ItemList.CollectionChanged += (_, _) => UpdateGamesListHeader();
+        _manager.ItemList.CollectionChanged += (_, _) => { UpdateGamesListHeader(); UpdateSearchMatches(); };
 
         _manager.OnFolderLocked = (path) =>
         {
@@ -94,6 +101,19 @@ public partial class MainWindow : Window, GongSolutions.Wpf.DragDrop.IDropTarget
                 "Close any programs using it, then click Yes to retry.",
                 "Confirmation", MessageBoxButton.YesNo, MessageBoxImage.Warning);
             return Task.FromResult(result == MessageBoxResult.Yes);
+        };
+
+        _manager.OnChooseArchiveAddMode = (archiveCount) =>
+        {
+            var dialog = new ArchiveAddModeDialog(archiveCount) { Owner = this };
+            dialog.ShowDialog();
+            return Task.FromResult(dialog.Result);
+        };
+
+        _manager.OnArchiveWarning = (message) =>
+        {
+            MessageBox.Show(this, message, "Warning", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return Task.CompletedTask;
         };
 
         this.Loaded += MainWindow_Loaded;
@@ -526,24 +546,24 @@ public partial class MainWindow : Window, GongSolutions.Wpf.DragDrop.IDropTarget
             progressWindow = new ProgressWindow();
             progressWindow.Owner = this;
             progressWindow.Title = "Adding Disc Images";
-            progressWindow.TotalItems = paths.Length;
-            progressWindow.Show();
+            progressWindow.IsIndeterminate = true;
         }
 
         try
         {
+            // Shown on the first report, so it appears after the archive
+            // add-mode dialog and never at all when the user cancels it.
             var progress = new Progress<string>(msg => Dispatcher.Invoke(() =>
             {
                 if (progressWindow != null)
+                {
+                    if (!progressWindow.IsVisible)
+                        progressWindow.Show();
                     progressWindow.TextContent = msg;
+                }
             }));
 
-            string tempRoot = GetTempFolderRoot();
-            var added = await _manager.AddGamesAsync(paths, progress, insertIndex,
-                string.IsNullOrEmpty(tempRoot) ? null : tempRoot);
-
-            if (progressWindow != null)
-                progressWindow.ProcessedItems = paths.Length;
+            var added = await _manager.AddGamesAsync(paths, progress, insertIndex);
         }
         catch (Exception ex)
         {
@@ -746,6 +766,13 @@ public partial class MainWindow : Window, GongSolutions.Wpf.DragDrop.IDropTarget
         view.Filter = null;
         FilterTextBox.Text = string.Empty;
         IsFilterActive = false;
+    }
+
+    private void UpdateSearchMatches()
+    {
+        var text = _searchText.Trim();
+        foreach (var item in _manager.ItemList)
+            item.IsMatch = text.Length > 0 && _manager.SearchInItem(item, text);
     }
 
     private async void ButtonSave_Click(object sender, RoutedEventArgs e)
@@ -1397,14 +1424,25 @@ public partial class MainWindow : Window, GongSolutions.Wpf.DragDrop.IDropTarget
         {
             propertyName = col.Header?.ToString() switch
             {
-                "Title" => nameof(SaturnGame.Name),
-                "Product ID" => nameof(SaturnGame.ProductId),
                 "Disc" => nameof(SaturnGame.Disc),
                 _ => null
             };
 
             if (propertyName != null && e.EditingElement is System.Windows.Controls.TextBox tb)
                 newValue = tb.Text;
+        }
+        else if (e.Column.Header?.ToString() is "Title" or "Product ID")
+        {
+            propertyName = e.Column.Header?.ToString() == "Title"
+                ? nameof(SaturnGame.Name)
+                : nameof(SaturnGame.ProductId);
+
+            if (e.EditingElement is System.Windows.Controls.ContentPresenter cp)
+            {
+                var tb = FindVisualChild<System.Windows.Controls.TextBox>(cp);
+                if (tb != null)
+                    newValue = tb.Text;
+            }
         }
         else if (e.Column.Header?.ToString() == "Folder")
         {
@@ -1433,6 +1471,25 @@ public partial class MainWindow : Window, GongSolutions.Wpf.DragDrop.IDropTarget
         }
 
         _editOldValue = null;
+    }
+
+    private void GameGrid_PreparingCellForEdit(object? sender, DataGridPreparingCellForEditEventArgs e)
+    {
+        var header = e.Column.Header?.ToString();
+        if (header != "Title" && header != "Product ID") return;
+        if (e.EditingElement is not System.Windows.Controls.ContentPresenter cp) return;
+
+        // Unlike a text column's editor, the template's TextBox is not focused
+        // automatically, and its visual tree may not exist yet.
+        Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Input, new Action(() =>
+        {
+            var tb = FindVisualChild<System.Windows.Controls.TextBox>(cp);
+            if (tb != null)
+            {
+                tb.Focus();
+                tb.SelectAll();
+            }
+        }));
     }
 
     private static T? FindVisualChild<T>(System.Windows.DependencyObject parent) where T : System.Windows.DependencyObject

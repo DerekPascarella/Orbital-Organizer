@@ -59,6 +59,19 @@ public enum RenameBy
 }
 
 /// <summary>
+/// When metadata should be read from compressed archives being added.
+/// </summary>
+public enum ArchiveAddMode
+{
+    /// <summary>Read metadata from inside each archive while adding.</summary>
+    ParseNow,
+    /// <summary>Add rows named after the archive files and read metadata during save.</summary>
+    DeferToSave,
+    /// <summary>Abort the add operation.</summary>
+    Cancel
+}
+
+/// <summary>
 /// Identifies who originally set up an SD card, which determines
 /// what sidecar data can be recovered from LIST.INI during migration.
 /// </summary>

@@ -1,4 +1,3 @@
-using System.Runtime.InteropServices;
 using System.Text;
 using OrbitalOrganizer.Core.Models;
 
@@ -18,7 +17,7 @@ public static class IpBinParser
     // images). The highest observed offset is ~345KB for CDI files. Capping
     // the search at 1MB avoids scanning hundreds of megabytes on non-Saturn
     // disc images (audio CDs, CD+G, VCDs, etc.).
-    private const int MaxSearchBytes = 1024 * 1024;
+    public const int MaxSearchBytes = 1024 * 1024;
 
     public static long FindIpBinStart(string filePath)
     {
@@ -50,8 +49,7 @@ public static class IpBinParser
         {
             var ext = Path.GetExtension(file).ToLowerInvariant();
 
-            // CHD support is Windows-only
-            if (ext == ".chd" && RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+            if (ext == ".chd")
             {
                 var ip = ParseHeaderFromChd(file);
                 if (ip != null)
@@ -110,6 +108,15 @@ public static class IpBinParser
         {
             return null;
         }
+    }
+
+    /// <summary>
+    /// Searches a buffer for the "SEGA SEGASATURN " magic pattern and returns
+    /// its offset, or -1 if not found.
+    /// </summary>
+    public static int FindMagicOffset(byte[] buffer, int bytesRead)
+    {
+        return FindPattern(buffer, bytesRead, Constants.SaturnMagic);
     }
 
     /// <summary>

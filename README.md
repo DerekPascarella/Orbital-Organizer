@@ -38,9 +38,13 @@ Please note that Rhea/Phoebe SD cards must be formatted as FAT32.
   - [Third-Party Components](#third-party-components)
 
 ## Current Version
-Orbital Organizer is currently at version [2.1.2](https://github.com/DerekPascarella/Orbital-Organizer/releases/tag/2.1.2).
+Orbital Organizer is currently at version [2.1.3](https://github.com/DerekPascarella/Orbital-Organizer/releases/tag/2.1.3).
 
 ## Changelog
+- **Version 2.1.3 (2026-08-17)**
+  - CHD support for Linux and macOS fixed (see [Issue 21](https://github.com/DerekPascarella/Orbital-Organizer/issues/21)).
+  - Improved handling of compressed disc images (see [Issue 22](https://github.com/DerekPascarella/Orbital-Organizer/issues/22)).
+  - Enhanced search functionality added (see [Issue 23](https://github.com/DerekPascarella/Orbital-Organizer/issues/23)).
 - **Version 2.1.2 (2026-08-03)**
   - Bug fixed causing assigned folder paths to not be remembered under certain conditions (see [Issue 20](https://github.com/DerekPascarella/Orbital-Organizer/issues/20)).
 - **Version 2.1.1 (2026-07-29)**

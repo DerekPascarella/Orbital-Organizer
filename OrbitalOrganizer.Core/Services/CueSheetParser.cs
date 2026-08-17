@@ -23,14 +23,29 @@ public static partial class CueSheetParser
         string cueDir = Path.GetDirectoryName(cueFilePath)!;
         string cueContent = File.ReadAllText(cueFilePath);
 
-        foreach (Match match in FileDirectiveRegex().Matches(cueContent))
+        foreach (string referencedFile in GetReferencedFileNames(cueContent))
         {
-            string referencedFile = match.Groups[1].Value;
             string fullPath = Path.Combine(cueDir, referencedFile);
 
             if (File.Exists(fullPath))
                 result.Add(fullPath);
         }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Returns the file names referenced by CUE sheet text, as written
+    /// (no path resolution or existence checks).
+    /// </summary>
+    public static List<string> GetReferencedFileNames(string cueContent)
+    {
+        var result = new List<string>();
+        if (string.IsNullOrEmpty(cueContent))
+            return result;
+
+        foreach (Match match in FileDirectiveRegex().Matches(cueContent))
+            result.Add(match.Groups[1].Value);
 
         return result;
     }

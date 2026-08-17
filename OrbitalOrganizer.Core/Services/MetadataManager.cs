@@ -252,7 +252,7 @@ public static class MetadataManager
     /// orbital_organizer.pl appended these to Name.txt. Disc info is
     /// stored separately in Disc.txt instead.
     /// </summary>
-    private static string StripDiscSuffix(string title)
+    internal static string StripDiscSuffix(string title)
     {
         return DiscSuffixRegex.Replace(title, "");
     }

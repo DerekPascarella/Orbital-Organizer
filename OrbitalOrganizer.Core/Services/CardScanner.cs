@@ -1,4 +1,3 @@
-using System.Runtime.InteropServices;
 using OrbitalOrganizer.Core.Models;
 
 namespace OrbitalOrganizer.Core.Services;
@@ -55,12 +54,10 @@ public static class CardScanner
         // so we never hit the filesystem twice for the same folder.
         var files = Directory.GetFiles(folderPath);
 
-        bool isWindows = RuntimeInformation.IsOSPlatform(OSPlatform.Windows);
         bool hasDiscImage = files.Any(f =>
         {
             var ext = Path.GetExtension(f).ToLowerInvariant();
-            return Constants.AllImageExtensions.Contains(ext) ||
-                   (isWindows && ext == ".chd");
+            return Constants.AllImageExtensions.Contains(ext) || ext == ".chd";
         });
 
         // Use the file-list overload so sidecar existence checks are
@@ -189,14 +186,10 @@ public static class CardScanner
     {
         if (!Directory.Exists(folderPath)) return false;
 
-        bool isWindows = RuntimeInformation.IsOSPlatform(OSPlatform.Windows);
-
         foreach (var file in Directory.GetFiles(folderPath))
         {
             var ext = Path.GetExtension(file).ToLowerInvariant();
-            if (Constants.AllImageExtensions.Contains(ext))
-                return true;
-            if (isWindows && ext == ".chd")
+            if (Constants.AllImageExtensions.Contains(ext) || ext == ".chd")
                 return true;
         }
 
@@ -210,15 +203,13 @@ public static class CardScanner
     {
         game.ImageFiles.Clear();
         long totalSize = 0;
-        bool isWindows = RuntimeInformation.IsOSPlatform(OSPlatform.Windows);
 
         foreach (var file in files)
         {
             var ext = Path.GetExtension(file).ToLowerInvariant();
 
             if (Constants.AllImageExtensions.Contains(ext) ||
-                ext == ".img" || ext == ".sub" || ext == ".bin" ||
-                (isWindows && ext == ".chd"))
+                ext == ".img" || ext == ".sub" || ext == ".bin" || ext == ".chd")
             {
                 game.ImageFiles.Add(file);
                 totalSize += new FileInfo(file).Length;
@@ -231,7 +222,7 @@ public static class CardScanner
             game.FileFormat = FileFormat.CloneCd;
         else if (game.ImageFiles.Any(f => Path.GetExtension(f).Equals(".cue", StringComparison.OrdinalIgnoreCase)))
             game.FileFormat = FileFormat.CueBin;
-        else if (isWindows && game.ImageFiles.Any(f => Path.GetExtension(f).Equals(".chd", StringComparison.OrdinalIgnoreCase)))
+        else if (game.ImageFiles.Any(f => Path.GetExtension(f).Equals(".chd", StringComparison.OrdinalIgnoreCase)))
             game.FileFormat = FileFormat.Chd;
         else
             game.FileFormat = FileFormat.Uncompressed;

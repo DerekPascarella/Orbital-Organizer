@@ -18,6 +18,7 @@ public class SaturnGame : INotifyPropertyChanged
     private int _sdNumber;
     private WorkMode _workMode = WorkMode.None;
     private List<string> _alternativeFolders = new();
+    private bool _isMatch;
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
@@ -148,6 +149,26 @@ public class SaturnGame : INotifyPropertyChanged
     public FileFormat? InnerFileFormat { get; set; }
 
     /// <summary>
+    /// For compressed archives, identifies the disc image entry inside the
+    /// archive so save can extract just its file set. Null when FileFormat
+    /// is not Compressed.
+    /// </summary>
+    public ArchiveEntryInfo? SelectedArchiveEntry { get; set; }
+
+    /// <summary>
+    /// Set on archive rows whose metadata has not been read yet. Save
+    /// resolves it from the extracted disc image after copying.
+    /// </summary>
+    public bool IsArchiveMetadataPending { get; set; }
+
+    /// <summary>
+    /// The provisional values a pending archive row was created with. At
+    /// save time a field still matching its provisional value is replaced
+    /// by the parsed one, while a field the user edited is kept.
+    /// </summary>
+    public ArchiveProvisionalValues? PendingArchiveValues { get; set; }
+
+    /// <summary>
     /// Parsed IP.BIN metadata. May be null if not yet loaded.
     /// </summary>
     public IpBin? Ip { get; set; }
@@ -233,6 +254,16 @@ public class SaturnGame : INotifyPropertyChanged
     public bool SidecarsDirty { get; set; }
 
     /// <summary>
+    /// Whether the current search text matches Name or ProductId.
+    /// Transient row highlight state, never saved.
+    /// </summary>
+    public bool IsMatch
+    {
+        get => _isMatch;
+        set { if (_isMatch != value) { _isMatch = value; OnPropertyChanged(); } }
+    }
+
+    /// <summary>
     /// Generates the formatted folder number string (e.g., "02", "100", "1000").
     /// </summary>
     public string FolderNumberFormatted
@@ -249,4 +280,17 @@ public class SaturnGame : INotifyPropertyChanged
     {
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
     }
+}
+
+/// <summary>
+/// Snapshot of the values a pending archive row was created with.
+/// </summary>
+public sealed class ArchiveProvisionalValues
+{
+    public string Name { get; init; } = string.Empty;
+    public string ProductId { get; init; } = string.Empty;
+    public string Disc { get; init; } = string.Empty;
+    public string Region { get; init; } = string.Empty;
+    public string Version { get; init; } = string.Empty;
+    public string ReleaseDate { get; init; } = string.Empty;
 }

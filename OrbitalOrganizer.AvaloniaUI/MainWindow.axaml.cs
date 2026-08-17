@@ -13,7 +13,6 @@ using System.ComponentModel;
 using System.Globalization;
 using System.IO;
 using System.Runtime.CompilerServices;
-using System.Runtime.InteropServices;
 using OrbitalOrganizer.Core;
 using OrbitalOrganizer.Core.Models;
 using OrbitalOrganizer.Core.Services;
@@ -88,6 +87,13 @@ public partial class MainWindow : Window, INotifyPropertyChanged
 
     public bool CanModifyList => HasSdPath && !IsFilterActive;
 
+    private string _searchText = string.Empty;
+    public string SearchText
+    {
+        get => _searchText;
+        set { _searchText = value ?? string.Empty; RaisePropertyChanged(); UpdateSearchMatches(); }
+    }
+
     public ObservableCollection<string> KnownFolders => _manager.KnownFolders;
 
     public UndoManager UndoManager => _manager.UndoManager;
@@ -114,7 +120,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
 
         GameGrid.ItemsSource = _manager.ItemList;
 
-        _manager.ItemList.CollectionChanged += (_, _) => UpdateGamesListHeader();
+        _manager.ItemList.CollectionChanged += (_, _) => { UpdateGamesListHeader(); UpdateSearchMatches(); };
 
         FilterTextBox.KeyDown += FilterTextBox_KeyDown;
         AddHandler(DragDrop.DropEvent, WindowDrop);
@@ -136,6 +142,20 @@ public partial class MainWindow : Window, INotifyPropertyChanged
                 ButtonEnum.YesNo, MsBoxIcon.Warning);
             var result = await msgBox.ShowWindowDialogAsync(this);
             return result == ButtonResult.Yes;
+        };
+
+        _manager.OnChooseArchiveAddMode = async (archiveCount) =>
+        {
+            var dialog = new ArchiveAddModeDialog(archiveCount);
+            await dialog.ShowDialog(this);
+            return dialog.Result;
+        };
+
+        _manager.OnArchiveWarning = async (message) =>
+        {
+            var msgBox = MessageBoxManager.GetMessageBoxStandard(
+                "Warning", message, ButtonEnum.Ok, MsBoxIcon.Warning);
+            await msgBox.ShowWindowDialogAsync(this);
         };
 
         RefreshDriveList();
@@ -613,9 +633,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             {
                 new FilePickerFileType("Saturn Disc Images")
                 {
-                    Patterns = RuntimeInformation.IsOSPlatform(OSPlatform.Windows)
-                        ? new[] { "*.cdi", "*.mdf", "*.img", "*.iso", "*.ccd", "*.cue", "*.chd", "*.7z", "*.rar", "*.zip" }
-                        : new[] { "*.cdi", "*.mdf", "*.img", "*.iso", "*.ccd", "*.7z", "*.rar", "*.zip" }
+                    Patterns = new[] { "*.cdi", "*.mdf", "*.img", "*.iso", "*.ccd", "*.cue", "*.chd", "*.7z", "*.rar", "*.zip" }
                 },
                 new FilePickerFileType("All Files")
                 {
@@ -633,10 +651,30 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     private async Task AddGamesFromPaths(string[] paths, int insertIndex = -1)
     {
         IsBusy = true;
+
+        ProgressWindow? progressWindow = null;
+        if (paths.Length > 1)
+        {
+            progressWindow = new ProgressWindow();
+            progressWindow.Title = "Adding Disc Images";
+            progressWindow.IsIndeterminate = true;
+        }
+
         try
         {
-            string tempRoot = GetTempFolderRoot();
-            await _manager.AddGamesAsync(paths, insertIndex: insertIndex, tempFolderRoot: string.IsNullOrEmpty(tempRoot) ? null : tempRoot);
+            // Shown on the first report, so it appears after the archive
+            // add-mode dialog and never at all when the user cancels it.
+            var progress = new Progress<string>(msg =>
+            {
+                if (progressWindow != null)
+                {
+                    if (!progressWindow.IsVisible)
+                        progressWindow.Show(this);
+                    progressWindow.TextContent = msg;
+                }
+            });
+
+            await _manager.AddGamesAsync(paths, progress, insertIndex);
         }
         catch (Exception ex)
         {
@@ -645,6 +683,11 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         }
         finally
         {
+            if (progressWindow != null)
+            {
+                progressWindow.AllowClose();
+                progressWindow.Close();
+            }
             IsBusy = false;
         }
     }
@@ -854,6 +897,13 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         GameGrid.ItemsSource = _manager.ItemList;
         FilterTextBox.Text = string.Empty;
         IsFilterActive = false;
+    }
+
+    private void UpdateSearchMatches()
+    {
+        var text = _searchText.Trim();
+        foreach (var item in _manager.ItemList)
+            item.IsMatch = text.Length > 0 && _manager.SearchInItem(item, text);
     }
 
     // --- Save ---

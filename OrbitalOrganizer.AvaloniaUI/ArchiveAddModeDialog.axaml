@@ -1,0 +1,49 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d" d:DesignWidth="560" d:DesignHeight="420"
+        x:Class="OrbitalOrganizer.ArchiveAddModeDialog"
+        Title="Add Compressed Archives" SizeToContent="Height" Width="560"
+        CanResize="False" CanMinimize="False"
+        WindowStartupLocation="CenterOwner">
+  <Grid Margin="20">
+    <Grid.RowDefinitions>
+      <RowDefinition Height="Auto"/>
+      <RowDefinition Height="Auto"/>
+    </Grid.RowDefinitions>
+
+    <!-- Message -->
+    <StackPanel Grid.Row="0">
+      <TextBlock x:Name="CountText" TextWrapping="Wrap"/>
+      <TextBlock TextWrapping="Wrap" Margin="0 12 0 0" Text="When should Saturn disc metadata be read from them?"/>
+      <TextBlock TextWrapping="Wrap" Margin="0 8 0 0" Text="Metadata includes each game's title, product ID, disc number, region, version, and release date, read from the disc image's IP.BIN header."/>
+
+      <TextBlock FontWeight="Bold" Margin="0 16 0 6" Text="Read Now"/>
+      <StackPanel Margin="20 0 0 0">
+        <TextBlock TextWrapping="Wrap" Margin="0 0 0 4" Text="&#x2022; Reads the IP.BIN header from inside each archive without extracting it."/>
+        <TextBlock TextWrapping="Wrap" Margin="0 0 0 4" Text="&#x2022; Games are added with their proper titles, ready to review and edit."/>
+        <TextBlock TextWrapping="Wrap" Text="&#x2022; Usually quick, but solid archives or a slow network drive can stretch it out."/>
+      </StackPanel>
+
+      <TextBlock FontWeight="Bold" Margin="0 16 0 6" Text="Wait for Save"/>
+      <StackPanel Margin="20 0 0 0">
+        <TextBlock TextWrapping="Wrap" Margin="0 0 0 4" Text="&#x2022; Adds each game right away, named after its archive file."/>
+        <TextBlock TextWrapping="Wrap" Margin="0 0 0 4" Text="&#x2022; Reads metadata during the save, when the archive is extracted anyway."/>
+        <TextBlock TextWrapping="Wrap" Text="&#x2022; Missing details show as NA until then."/>
+      </StackPanel>
+
+      <TextBlock TextWrapping="Wrap" Margin="0 16 0 0" Text="Edits made before saving are kept either way."/>
+    </StackPanel>
+
+    <!-- Buttons -->
+    <StackPanel Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0 20 0 0">
+      <Button Content="Read Now" Click="ReadNowButton_Click" MinWidth="90" Height="28" IsDefault="True"
+              ToolTip.Tip="Read metadata from inside each archive before adding"/>
+      <Button Content="Wait for Save" Click="DeferToSaveButton_Click" MinWidth="90" Height="28" Margin="10 0 0 0"
+              ToolTip.Tip="Add now using archive file names and read metadata during save"/>
+      <Button Content="Cancel" Click="CancelButton_Click" MinWidth="90" Height="28" Margin="10 0 0 0" IsCancel="True"
+              ToolTip.Tip="Cancel this add without adding anything"/>
+    </StackPanel>
+  </Grid>
+</Window>

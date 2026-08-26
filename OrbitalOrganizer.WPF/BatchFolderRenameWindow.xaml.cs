@@ -205,9 +205,9 @@ public partial class BatchFolderRenameWindow : Window, INotifyPropertyChanged
 
             if (!FolderTreeNode.IsValidPrintableAscii(node.Name))
             {
-                MessageBox.Show(
+                MessageBox.Show(this,
                     "Only printable ASCII characters (letters, numbers, and standard symbols) are supported.",
-                    "Error", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    "Error", MessageBoxButton.OK, MessageBoxImage.None);
                 node.Name = "PLEASE RENAME";
                 _editingOriginalName = null;
                 return;
@@ -230,9 +230,9 @@ public partial class BatchFolderRenameWindow : Window, INotifyPropertyChanged
             {
                 if (!FolderTreeNode.IsValidPrintableAscii(textBox.Text))
                 {
-                    MessageBox.Show(
+                    MessageBox.Show(this,
                         "Only printable ASCII characters (letters, numbers, and standard symbols) are supported.",
-                        "Error", MessageBoxButton.OK, MessageBoxImage.Warning);
+                        "Error", MessageBoxButton.OK, MessageBoxImage.None);
                     node.Name = "PLEASE RENAME";
                     _editingOriginalName = null;
                 }
@@ -349,8 +349,8 @@ public partial class BatchFolderRenameWindow : Window, INotifyPropertyChanged
 
                     if (IsDescendant(targetNode, droppedNode))
                     {
-                        MessageBox.Show("Cannot move a folder into its own subfolder.",
-                            "Error", MessageBoxButton.OK, MessageBoxImage.Warning);
+                        MessageBox.Show(this, "Cannot move a folder into its own subfolder.",
+                            "Error", MessageBoxButton.OK, MessageBoxImage.None);
                         return;
                     }
 

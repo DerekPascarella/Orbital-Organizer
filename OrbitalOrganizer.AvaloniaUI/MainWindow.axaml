@@ -356,7 +356,8 @@
                 </Button>
 
                 <CheckBox Grid.Column="4" x:Name="LockCheckBox" VerticalAlignment="Center" Margin="10,0"
-                          IsChecked="True" ToolTip.Tip="Check for locked files/folders before saving">File/Folder Lock Check</CheckBox>
+                          Click="LockCheckBox_Click" IsChecked="True"
+                          ToolTip.Tip="Check for locked files/folders before saving">File/Folder Lock Check</CheckBox>
 
                 <Button Grid.Column="5" Margin="10,0" Padding="0,10" FontWeight="Bold"
                         Click="ButtonSave_Click" ToolTip.Tip="Save changes to SD card"

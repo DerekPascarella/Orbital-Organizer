@@ -53,6 +53,14 @@ public static class Constants
     };
     public const string ProductIdFile = "ProductID.txt";
 
+    // Game database at the SD card root
+    public const string GameDatabaseFile = "GameDB.json";
+    public static readonly string[] AllSidecarFiles = {
+        NameFile, DiscFile, RegionFile, VersionFile, DateFile,
+        FolderFile, FolderAlt1File, FolderAlt2File, FolderAlt3File,
+        FolderAlt4File, FolderAlt5File, ProductIdFile
+    };
+
     // RMENU ISO volume descriptor fields
     public const string IsoSystemId = "SEGA SATURN";
     public const string IsoVolumeId = "RMENU";

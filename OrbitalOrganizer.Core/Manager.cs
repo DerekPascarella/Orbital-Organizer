@@ -20,6 +20,7 @@ public class Manager : INotifyPropertyChanged
     private MenuKind _menuKindDetected = MenuKind.None;
     private MenuKind _menuKindSelected = MenuKind.RmenuKai;
     private bool _useVirtualFolderSubfolders = true;
+    private GameDatabase? _gameDb;
 
     /// <summary>
     /// The list of all games currently loaded. Does not include the menu item (folder 01).
@@ -73,6 +74,12 @@ public class Manager : INotifyPropertyChanged
     }
 
     /// <summary>
+    /// True when the loaded card uses GameDB.json. Legacy sessions are null
+    /// inside and behave exactly as before the database existed.
+    /// </summary>
+    public bool IsGameDbMode => _gameDb != null;
+
+    /// <summary>
     /// Path to the application's tools/ directory.
     /// </summary>
     public string ToolsPath { get; set; } = string.Empty;
@@ -87,6 +94,13 @@ public class Manager : INotifyPropertyChanged
     /// to prompt the user. Return true to retry, false to abort.
     /// </summary>
     public Func<string, Task<bool>>? OnFolderLocked { get; set; }
+
+    /// <summary>
+    /// Callback shown when GameDB.json exists but cannot be read. The UI
+    /// sets this to ask the user. Return true to delete the bad file and
+    /// rebuild it from the text files after the load.
+    /// </summary>
+    public Func<Task<bool>>? OnGameDbUnreadable { get; set; }
 
     /// <summary>
     /// Region code to write into newly created INI files (e.g., "J", "U", "E").
@@ -118,6 +132,7 @@ public class Manager : INotifyPropertyChanged
         ItemList.Clear();
         KnownFolders.Clear();
         UndoManager.Clear();
+        _gameDb = null;
 
         // Detect menu type (runs on thread pool to avoid blocking the UI)
         MenuKindDetected = await Task.Run(() => MenuDetector.Detect(SdCardPath));
@@ -142,6 +157,27 @@ public class Manager : INotifyPropertyChanged
         };
         ItemList.Add(menuItem);
 
+        // The scan resolves entries against this local snapshot so a
+        // reentrant load cannot swap the field mid-loop.
+        bool dbFileExists = await Task.Run(() => File.Exists(GameDatabase.GetPath(SdCardPath)));
+        GameDatabase? dbSnapshot = null;
+        bool rebuildAfterLoad = false;
+        if (dbFileExists)
+        {
+            dbSnapshot = await GameDatabase.LoadAsync(SdCardPath);
+            if (dbSnapshot == null && OnGameDbUnreadable != null && await OnGameDbUnreadable())
+            {
+                // A failed delete keeps the session on the legacy path and
+                // the next load asks again.
+                try
+                {
+                    await Task.Run(() => File.Delete(GameDatabase.GetPath(SdCardPath)));
+                    rebuildAfterLoad = true;
+                }
+                catch { }
+            }
+        }
+
         // Scan for games, adding each to the list as it's loaded
         int count = await CardScanner.ScanCardAsync(SdCardPath, game =>
         {
@@ -152,7 +188,7 @@ public class Manager : INotifyPropertyChanged
             }
 
             ItemList.Add(game);
-        });
+        }, name => dbSnapshot?.Items.GetValueOrDefault(name));
 
         // If the card has RmenuKai in folder 01 and a legacy RMENU was
         // found during the scan above, upgrade the detected type to Both.
@@ -160,6 +196,27 @@ public class Manager : INotifyPropertyChanged
         {
             MenuKindDetected = MenuKind.Both;
             MenuKindSelected = MenuKind.Both;
+        }
+
+        // A card with no game folders and no database starts in database
+        // mode. The file itself is created on first save.
+        if (dbSnapshot == null && !dbFileExists && CountGameFolders() == 0)
+            dbSnapshot = new GameDatabase();
+
+        _gameDb = dbSnapshot;
+
+        // A failed rebuild leaves a legacy session. The bad file is already
+        // gone, so the next load offers the normal migration prompt.
+        if (rebuildAfterLoad)
+        {
+            try
+            {
+                await PerformGameDbMigrationAsync();
+            }
+            catch
+            {
+                _gameDb = null;
+            }
         }
 
         // Build known folders list
@@ -272,6 +329,27 @@ public class Manager : INotifyPropertyChanged
                 await Task.Run(() => WriteSidecarFiles(progress));
             }
 
+            // Rebuild the database wholesale. The dirty gate cannot apply
+            // here because renumbering changes keys for unedited items too.
+            if (_gameDb != null)
+            {
+                _gameDb.Items.Clear();
+                foreach (var game in ItemList)
+                {
+                    if (game.IsMenuItem || game.SdNumber <= 0)
+                        continue;
+                    if (string.IsNullOrEmpty(game.FullFolderPath))
+                        continue;
+
+                    var entry = CreateDbEntry(game);
+                    if (entry.IsUsable)
+                        _gameDb.Items[Path.GetFileName(game.FullFolderPath)] = entry;
+                }
+
+                progress?.Report("Writing game database...");
+                await _gameDb.SaveAsync(SdCardPath);
+            }
+
             // Generate GameList.txt
             string gameListContent = MenuBuilder.GenerateGameList(gamesList, MenuKindSelected);
             File.WriteAllText(Path.Combine(SdCardPath, "GameList.txt"), gameListContent, System.Text.Encoding.UTF8);
@@ -281,6 +359,10 @@ public class Manager : INotifyPropertyChanged
         finally
         {
             try { Directory.Delete(tempDir, recursive: true); } catch { }
+            if (_gameDb != null)
+            {
+                try { File.Delete(GameDatabase.GetPath(SdCardPath) + ".tmp"); } catch { }
+            }
         }
     }
 
@@ -411,6 +493,90 @@ public class Manager : INotifyPropertyChanged
     }
 
     /// <summary>
+    /// True when the card is old-format: no GameDB.json and at least one
+    /// numbered game folder. Folder 01 alone does not count.
+    /// </summary>
+    public Task<bool> CheckGameDbMigrationNeededAsync()
+    {
+        return Task.Run(() =>
+        {
+            if (string.IsNullOrEmpty(SdCardPath) || !Directory.Exists(SdCardPath))
+                return false;
+
+            if (File.Exists(GameDatabase.GetPath(SdCardPath)))
+                return false;
+
+            return Directory.GetDirectories(SdCardPath).Any(d =>
+            {
+                string name = Path.GetFileName(d);
+                return int.TryParse(name, out int n) && n > Constants.MenuFolderNumber;
+            });
+        });
+    }
+
+    /// <summary>
+    /// One-time migration to GameDB.json, built from the loaded item list.
+    /// Nothing is deleted from the card. Sidecar text files remain as
+    /// write-only compatibility output.
+    /// </summary>
+    public async Task PerformGameDbMigrationAsync()
+    {
+        if (string.IsNullOrEmpty(SdCardPath) || !Directory.Exists(SdCardPath))
+            throw new InvalidOperationException(
+                $"The SD card is no longer accessible at \"{SdCardPath}\". Reconnect it and try again.");
+
+        var db = new GameDatabase();
+        foreach (var game in ItemList)
+        {
+            if (game.IsMenuItem || game.SdNumber <= 0)
+                continue;
+
+            var entry = CreateDbEntry(game);
+            if (entry.IsUsable)
+                db.Items[Path.GetFileName(game.FullFolderPath)] = entry;
+        }
+
+        await db.SaveAsync(SdCardPath);
+
+        var verify = await GameDatabase.LoadAsync(SdCardPath);
+        if (verify == null || verify.Items.Count != db.Items.Count)
+        {
+            await Task.Run(() => File.Delete(GameDatabase.GetPath(SdCardPath)));
+            throw new InvalidOperationException(
+                "The game database could not be verified after writing. The card was left unchanged.");
+        }
+
+        _gameDb = db;
+    }
+
+    // Items still waiting on a metadata scan get identity fields only, so
+    // the entry stays below the HasCacheData gate and the folder queues
+    // again on the next load.
+    private GameDbEntry CreateDbEntry(SaturnGame game)
+    {
+        var entry = new GameDbEntry
+        {
+            Name = game.Name,
+            Folder = string.IsNullOrEmpty(game.Folder) ? "" : game.Folder.Replace('\\', '/'),
+            AltFolders = game.AlternativeFolders
+                .Where(f => !string.IsNullOrWhiteSpace(f))
+                .Select(f => f.Replace('\\', '/'))
+                .ToList()
+        };
+
+        if (!game.NeedsMetadataScan)
+        {
+            entry.ProductId = game.ProductId ?? "";
+            entry.Disc = game.Disc;
+            entry.Region = game.Region;
+            entry.Version = game.Version;
+            entry.Date = game.ReleaseDate;
+        }
+
+        return entry;
+    }
+
+    /// <summary>
     /// Fills missing metadata for items that need it. On OO-managed cards,
     /// tries LIST.INI first (preserves user-customized titles, folder paths,
     /// etc.) and falls back to IP.BIN for anything LIST.INI couldn't provide.
@@ -443,7 +609,20 @@ public class Manager : INotifyPropertyChanged
             }
 
             await Task.Run(() => CardScanner.ScanAndCacheMetadata(item, listIniEntry));
+
+            if (_gameDb != null && !item.IsMenuItem && item.SdNumber > 0)
+            {
+                string key = Path.GetFileName(item.FullFolderPath);
+                var entry = CreateDbEntry(item);
+                if (entry.IsUsable)
+                    _gameDb.Items[key] = entry;
+                else
+                    _gameDb.Items.Remove(key);
+            }
         }
+
+        if (_gameDb != null)
+            await _gameDb.SaveAsync(SdCardPath);
     }
 
     /// <summary>
@@ -562,6 +741,13 @@ public class Manager : INotifyPropertyChanged
 
             if (!knownPaths.Contains(dir))
                 paths.Add(dir);
+        }
+
+        if (_gameDb != null)
+        {
+            string dbPath = GameDatabase.GetPath(SdCardPath);
+            if (File.Exists(dbPath))
+                paths.Add(dbPath);
         }
 
         return paths;
@@ -933,6 +1119,8 @@ public class Manager : INotifyPropertyChanged
                 game.Name = sidecar.Name;
             if (string.IsNullOrWhiteSpace(game.Folder) && !string.IsNullOrWhiteSpace(sidecar.Folder))
                 game.Folder = sidecar.Folder;
+            if (game.AlternativeFolders.Count == 0 && sidecar.AlternativeFolders.Count > 0)
+                game.AlternativeFolders = sidecar.AlternativeFolders;
             if (!productIdEdited && !string.IsNullOrWhiteSpace(sidecar.ProductId))
                 game.ProductId = sidecar.ProductId;
 
@@ -1137,6 +1325,8 @@ public class Manager : INotifyPropertyChanged
         {
             if (!string.IsNullOrWhiteSpace(existing.Name)) game.Name = existing.Name;
             if (!string.IsNullOrWhiteSpace(existing.Folder)) game.Folder = existing.Folder;
+            if (existing.AlternativeFolders.Count > 0)
+                game.AlternativeFolders = existing.AlternativeFolders;
             if (!string.IsNullOrWhiteSpace(existing.ProductId)) game.ProductId = existing.ProductId;
 
             if (File.Exists(Path.Combine(sourcePath, Constants.DiscFile)))
@@ -1528,6 +1718,16 @@ public class Manager : INotifyPropertyChanged
         string? date = ReadArchiveSidecarText(archivePath, entries, selected, Constants.DateFile);
         if (date != null)
             game.ReleaseDate = date.Trim();
+
+        var altFolders = new List<string>();
+        foreach (var altFileName in Constants.FolderAltFiles)
+        {
+            string? alt = ReadArchiveSidecarText(archivePath, entries, selected, altFileName);
+            if (!string.IsNullOrWhiteSpace(alt))
+                altFolders.Add(alt.Trim().Replace('/', '\\').Trim('\\'));
+        }
+        if (altFolders.Count > 0)
+            game.AlternativeFolders = altFolders;
     }
 
     private static string? ReadArchiveSidecarText(string archivePath, IReadOnlyList<ArchiveEntryInfo> entries, ArchiveEntryInfo selected, string sidecarFileName)

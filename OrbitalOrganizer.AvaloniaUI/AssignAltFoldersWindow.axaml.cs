@@ -152,7 +152,7 @@ public partial class AssignAltFoldersWindow : Window
                 var msgBox = MessageBoxManager.GetMessageBoxStandard(
                     "Information",
                     "This folder path is already assigned to this disc image.",
-                    ButtonEnum.Ok, MsBoxIcon.Info);
+                    ButtonEnum.Ok, MsBoxIcon.None, windowStartupLocation: WindowStartupLocation.CenterOwner);
                 await msgBox.ShowWindowDialogAsync(this);
                 entry.FolderPath = string.Empty;
             }

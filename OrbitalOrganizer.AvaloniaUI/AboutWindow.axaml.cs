@@ -88,7 +88,7 @@ public partial class AboutWindow : Window
                 var msgBox = MessageBoxManager.GetMessageBoxStandard(
                     "Information",
                     "You are running the latest version.",
-                    ButtonEnum.Ok, MsBoxIcon.Info);
+                    ButtonEnum.Ok, MsBoxIcon.None, windowStartupLocation: WindowStartupLocation.CenterOwner);
                 await msgBox.ShowWindowDialogAsync(this);
             }
         }
@@ -97,7 +97,7 @@ public partial class AboutWindow : Window
             var msgBox = MessageBoxManager.GetMessageBoxStandard(
                 "Error",
                 "Could not check for updates. Please check your internet connection.",
-                ButtonEnum.Ok, MsBoxIcon.Warning);
+                ButtonEnum.Ok, MsBoxIcon.None, windowStartupLocation: WindowStartupLocation.CenterOwner);
             await msgBox.ShowWindowDialogAsync(this);
         }
         finally

@@ -133,7 +133,7 @@ public partial class UpdateWizardWindow : Window
         {
             UpdateManager.CleanupStagingDirectory();
             var msgBox = MessageBoxManager.GetMessageBoxStandard("Error",
-                $"Update failed: {ex.Message}", ButtonEnum.Ok, MsBoxIcon.Error);
+                $"Update failed: {ex.Message}", ButtonEnum.Ok, MsBoxIcon.None, windowStartupLocation: WindowStartupLocation.CenterOwner);
             await msgBox.ShowWindowDialogAsync(this);
             Close();
         }

@@ -99,7 +99,16 @@ public partial class MainWindow : Window, GongSolutions.Wpf.DragDrop.IDropTarget
             var result = MessageBox.Show(this,
                 $"The following folder is open in another program:\n\n{path}\n\n" +
                 "Close any programs using it, then click Yes to retry.",
-                "Confirmation", MessageBoxButton.YesNo, MessageBoxImage.Warning);
+                "Confirmation", MessageBoxButton.YesNo, MessageBoxImage.None);
+            return Task.FromResult(result == MessageBoxResult.Yes);
+        };
+
+        _manager.OnGameDbUnreadable = () =>
+        {
+            var result = MessageBox.Show(this,
+                "The GameDB.json database on this card could not be read.\n\n" +
+                "Rebuild it from the text files?",
+                "Game Database", MessageBoxButton.YesNo, MessageBoxImage.None);
             return Task.FromResult(result == MessageBoxResult.Yes);
         };
 
@@ -112,7 +121,7 @@ public partial class MainWindow : Window, GongSolutions.Wpf.DragDrop.IDropTarget
 
         _manager.OnArchiveWarning = (message) =>
         {
-            MessageBox.Show(this, message, "Warning", MessageBoxButton.OK, MessageBoxImage.Warning);
+            MessageBox.Show(this, message, "Warning", MessageBoxButton.OK, MessageBoxImage.None);
             return Task.CompletedTask;
         };
 
@@ -133,7 +142,7 @@ public partial class MainWindow : Window, GongSolutions.Wpf.DragDrop.IDropTarget
                 MessageBox.Show(this,
                     $"The settings file is marked as read-only:\n\n{readOnlyPath}\n\n" +
                     "Your preferences will not be saved until this is resolved.",
-                    "Information", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    "Information", MessageBoxButton.OK, MessageBoxImage.None);
             }
         }
         catch { }
@@ -299,7 +308,7 @@ public partial class MainWindow : Window, GongSolutions.Wpf.DragDrop.IDropTarget
             UseDescriptionForTitle = true
         };
 
-        if (dialog.ShowDialog() != System.Windows.Forms.DialogResult.OK) return;
+        if (dialog.ShowDialog(new Win32Window(this)) != System.Windows.Forms.DialogResult.OK) return;
 
         string folderPath = dialog.SelectedPath;
 
@@ -324,7 +333,7 @@ public partial class MainWindow : Window, GongSolutions.Wpf.DragDrop.IDropTarget
             SelectedPath = TempFolderTextBox.Text ?? ""
         };
 
-        if (dialog.ShowDialog() != System.Windows.Forms.DialogResult.OK) return;
+        if (dialog.ShowDialog(new Win32Window(this)) != System.Windows.Forms.DialogResult.OK) return;
 
         TempFolderTextBox.Text = dialog.SelectedPath;
         SaveSettings();
@@ -332,15 +341,17 @@ public partial class MainWindow : Window, GongSolutions.Wpf.DragDrop.IDropTarget
 
     private void ButtonResetTempFolder_Click(object sender, RoutedEventArgs e)
     {
-        var result = MessageBox.Show(
+        var result = MessageBox.Show(this,
             "Reset the Temporary Folder path to default?",
             "Confirmation",
-            MessageBoxButton.YesNo, MessageBoxImage.Question);
+            MessageBoxButton.YesNo, MessageBoxImage.None);
         if (result != MessageBoxResult.Yes) return;
 
         TempFolderTextBox.Text = Path.GetTempPath().TrimEnd(Path.DirectorySeparatorChar);
         SaveSettings();
     }
+
+    private void LockCheckBox_Click(object sender, RoutedEventArgs e) => SaveSettings();
 
     private async void DriveList_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
@@ -368,6 +379,27 @@ public partial class MainWindow : Window, GongSolutions.Wpf.DragDrop.IDropTarget
 
         try
         {
+            bool migrationApproved = false;
+            if (await _manager.CheckGameDbMigrationNeededAsync())
+            {
+                var migrationDialog = new GameDbMigrationDialog();
+                if (new System.Windows.Interop.WindowInteropHelper(this).Handle == IntPtr.Zero)
+                {
+                    var sourceInitialized = new TaskCompletionSource<bool>();
+                    EventHandler? handler = null;
+                    handler = (_, _) =>
+                    {
+                        SourceInitialized -= handler;
+                        sourceInitialized.TrySetResult(true);
+                    };
+                    SourceInitialized += handler;
+                    await sourceInitialized.Task;
+                }
+                migrationDialog.Owner = this;
+                migrationDialog.ShowDialog();
+                migrationApproved = migrationDialog.Proceed;
+            }
+
             await _manager.PrePopulateFromListIniAsync();
             await _manager.LoadItemsFromCardAsync();
 
@@ -376,6 +408,20 @@ public partial class MainWindow : Window, GongSolutions.Wpf.DragDrop.IDropTarget
             UpdateFolderColumnVisibility();
             UpdateSortButtonTooltip();
             UpdateBatchFolderRenameVisibility();
+
+            if (migrationApproved)
+            {
+                try
+                {
+                    await _manager.PerformGameDbMigrationAsync();
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show(this,
+                        "The game database could not be created:\n\n" + ex.Message,
+                        "Game Database Migration", MessageBoxButton.OK, MessageBoxImage.None);
+                }
+            }
 
             // Check if any items need a metadata scan (missing sidecar files)
             var itemsNeedingScan = _manager.GetItemsNeedingMetadataScan();
@@ -398,7 +444,7 @@ public partial class MainWindow : Window, GongSolutions.Wpf.DragDrop.IDropTarget
         }
         catch (Exception ex)
         {
-            MessageBox.Show(this, ex.Message, "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            MessageBox.Show(this, ex.Message, "Error", MessageBoxButton.OK, MessageBoxImage.None);
         }
         finally
         {
@@ -567,7 +613,7 @@ public partial class MainWindow : Window, GongSolutions.Wpf.DragDrop.IDropTarget
         }
         catch (Exception ex)
         {
-            MessageBox.Show(this, ex.Message, "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            MessageBox.Show(this, ex.Message, "Error", MessageBoxButton.OK, MessageBoxImage.None);
         }
         finally
         {
@@ -638,7 +684,7 @@ public partial class MainWindow : Window, GongSolutions.Wpf.DragDrop.IDropTarget
             if (folderCounts.Count == 0)
             {
                 MessageBox.Show(this, "No folders found in the current game list.",
-                    "Information", MessageBoxButton.OK, MessageBoxImage.Information);
+                    "Information", MessageBoxButton.OK, MessageBoxImage.None);
                 return;
             }
 
@@ -678,18 +724,18 @@ public partial class MainWindow : Window, GongSolutions.Wpf.DragDrop.IDropTarget
                     if (conflictsRemoved > 0)
                         msg += $"\n{conflictsRemoved} duplicate additional folder path(s) were automatically removed.";
                     msg += "\n\nClick 'Save Changes' to write updates to SD card.";
-                    MessageBox.Show(this, msg, "Information", MessageBoxButton.OK, MessageBoxImage.Information);
+                    MessageBox.Show(this, msg, "Information", MessageBoxButton.OK, MessageBoxImage.None);
                 }
                 else
                 {
                     MessageBox.Show(this, "No changes were made.",
-                        "Information", MessageBoxButton.OK, MessageBoxImage.Information);
+                        "Information", MessageBoxButton.OK, MessageBoxImage.None);
                 }
             }
         }
         catch (Exception ex)
         {
-            MessageBox.Show(this, ex.Message, "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            MessageBox.Show(this, ex.Message, "Error", MessageBoxButton.OK, MessageBoxImage.None);
         }
     }
 
@@ -698,7 +744,7 @@ public partial class MainWindow : Window, GongSolutions.Wpf.DragDrop.IDropTarget
         var result = MessageBox.Show(this,
             "Your disc images will be automatically sorted in alphanumeric order " +
             "based on a combination of Folder and Title.\n\nProceed?",
-            "Confirmation", MessageBoxButton.YesNo, MessageBoxImage.Question);
+            "Confirmation", MessageBoxButton.YesNo, MessageBoxImage.None);
 
         if (result != MessageBoxResult.Yes) return;
 
@@ -716,7 +762,7 @@ public partial class MainWindow : Window, GongSolutions.Wpf.DragDrop.IDropTarget
         if (!SearchInGrid(startIndex, filterText))
         {
             if (!SearchInGrid(0, filterText))
-                MessageBox.Show(this, "No matches found.", "Information", MessageBoxButton.OK, MessageBoxImage.Information);
+                MessageBox.Show(this, "No matches found.", "Information", MessageBoxButton.OK, MessageBoxImage.None);
         }
     }
 
@@ -779,13 +825,13 @@ public partial class MainWindow : Window, GongSolutions.Wpf.DragDrop.IDropTarget
     {
         if (string.IsNullOrEmpty(_manager.SdCardPath))
         {
-            MessageBox.Show(this, "No SD card selected.", "Error", MessageBoxButton.OK, MessageBoxImage.Warning);
+            MessageBox.Show(this, "No SD card selected.", "Error", MessageBoxButton.OK, MessageBoxImage.None);
             return;
         }
 
         var confirmResult = MessageBox.Show(this,
             $"Save changes to \"{_manager.SdCardPath}\" drive?",
-            "Confirmation", MessageBoxButton.YesNo, MessageBoxImage.Question);
+            "Confirmation", MessageBoxButton.YesNo, MessageBoxImage.None);
 
         if (confirmResult != MessageBoxResult.Yes) return;
 
@@ -803,7 +849,7 @@ public partial class MainWindow : Window, GongSolutions.Wpf.DragDrop.IDropTarget
         {
             var proceed = MessageBox.Show(this,
                 Manager.BuildSpaceWarningMessage(spaceCheck),
-                "Confirmation", MessageBoxButton.YesNo, MessageBoxImage.Warning);
+                "Confirmation", MessageBoxButton.YesNo, MessageBoxImage.None);
             if (proceed != MessageBoxResult.Yes) return;
         }
 
@@ -844,7 +890,7 @@ public partial class MainWindow : Window, GongSolutions.Wpf.DragDrop.IDropTarget
                 progressWindow.AllowClose();
                 progressWindow.Close();
 
-                MessageBox.Show("Done!", "Information", MessageBoxButton.OK, MessageBoxImage.Information);
+                MessageBox.Show(this, "Done!", "Information", MessageBoxButton.OK, MessageBoxImage.None);
 
                 await LoadCard();
             }
@@ -857,7 +903,7 @@ public partial class MainWindow : Window, GongSolutions.Wpf.DragDrop.IDropTarget
         }
         catch (Exception ex)
         {
-            MessageBox.Show(this, ex.Message, "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            MessageBox.Show(this, ex.Message, "Error", MessageBoxButton.OK, MessageBoxImage.None);
         }
         finally
         {
@@ -938,7 +984,7 @@ public partial class MainWindow : Window, GongSolutions.Wpf.DragDrop.IDropTarget
             sb.Append($"{foldersLabel}: {(allFolders.Count > 0 ? FormatFolderList(allFolders) : "NA")}");
         }
 
-        MessageBox.Show(this, sb.ToString(), "Information", MessageBoxButton.OK, MessageBoxImage.Information);
+        MessageBox.Show(this, sb.ToString(), "Information", MessageBoxButton.OK, MessageBoxImage.None);
     }
 
     private static string FormatFolderList(List<string> folders)
@@ -1096,7 +1142,7 @@ public partial class MainWindow : Window, GongSolutions.Wpf.DragDrop.IDropTarget
         }
         catch (Exception ex)
         {
-            MessageBox.Show($"Failed to read IP.BIN: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            MessageBox.Show(this, $"Failed to read IP.BIN: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.None);
         }
         finally
         {

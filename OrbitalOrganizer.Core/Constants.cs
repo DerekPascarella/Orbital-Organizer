@@ -6,7 +6,7 @@ namespace OrbitalOrganizer.Core;
 
 public static class Constants
 {
-    public const string Version = "2.1.3";
+    public const string Version = "2.1.4";
     public const string AppName = "Orbital Organizer";
     public const string AppDescription = "A tool to manage a Rhea/Phoebe SD card and its contents";
     public const string AppUrl = "https://github.com/DerekPascarella/Orbital-Organizer";
@@ -37,6 +37,14 @@ public static class Constants
         FolderAlt4File, FolderAlt5File
     };
     public const string ProductIdFile = "ProductID.txt";
+
+    // Game database at the SD card root
+    public const string GameDatabaseFile = "GameDB.json";
+    public static readonly string[] AllSidecarFiles = {
+        NameFile, DiscFile, RegionFile, VersionFile, DateFile,
+        FolderFile, FolderAlt1File, FolderAlt2File, FolderAlt3File,
+        FolderAlt4File, FolderAlt5File, ProductIdFile
+    };
 
     // RMENU ISO volume descriptor fields
     public const string IsoSystemId = "SEGA SATURN";

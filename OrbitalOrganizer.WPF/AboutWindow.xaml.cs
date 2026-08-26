@@ -74,18 +74,18 @@ public partial class AboutWindow : Window
             }
             else
             {
-                MessageBox.Show(
+                MessageBox.Show(this,
                     "You are running the latest version.",
                     "Information",
-                    MessageBoxButton.OK, MessageBoxImage.Information);
+                    MessageBoxButton.OK, MessageBoxImage.None);
             }
         }
         catch
         {
-            MessageBox.Show(
+            MessageBox.Show(this,
                 "Could not check for updates. Please check your internet connection.",
                 "Error",
-                MessageBoxButton.OK, MessageBoxImage.Warning);
+                MessageBoxButton.OK, MessageBoxImage.None);
         }
         finally
         {

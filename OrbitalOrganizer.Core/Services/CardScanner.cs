@@ -15,7 +15,8 @@ public static class CardScanner
     /// a placeholder entry (Ip will be null) for later metadata scanning.
     /// Returns the number of games found.
     /// </summary>
-    public static async Task<int> ScanCardAsync(string sdCardPath, Action<SaturnGame> onGameLoaded)
+    public static async Task<int> ScanCardAsync(string sdCardPath, Action<SaturnGame> onGameLoaded,
+        Func<string, GameDbEntry?>? dbLookup = null)
     {
         var directories = Directory.GetDirectories(sdCardPath)
             .Select(d => new { Path = d, Name = Path.GetFileName(d) })
@@ -29,8 +30,9 @@ public static class CardScanner
         foreach (var dir in directories)
         {
             int folderNumber = int.Parse(dir.Name);
+            var dbEntry = dbLookup?.Invoke(dir.Name);
 
-            var game = await Task.Run(() => LoadGameFromFolder(dir.Path, folderNumber));
+            var game = await Task.Run(() => LoadGameFromFolder(dir.Path, folderNumber, dbEntry));
             if (game != null)
             {
                 onGameLoaded(game);
@@ -47,7 +49,7 @@ public static class CardScanner
     /// placeholder entry without parsing IP.BIN, leaving Ip as null so the
     /// caller can identify items needing a metadata scan.
     /// </summary>
-    private static SaturnGame? LoadGameFromFolder(string folderPath, int folderNumber)
+    private static SaturnGame? LoadGameFromFolder(string folderPath, int folderNumber, GameDbEntry? entry)
     {
         // Single enumeration of all files in the folder. The list is reused
         // for sidecar lookups, disc image detection, and image file population
@@ -59,6 +61,32 @@ public static class CardScanner
             var ext = Path.GetExtension(f).ToLowerInvariant();
             return Constants.AllImageExtensions.Contains(ext) || ext == ".chd";
         });
+
+        if (entry != null)
+        {
+            // Metadata comes from the database entry. Image files and sizes
+            // still come from disk so out-of-band image swaps are seen.
+            var dbGame = new SaturnGame
+            {
+                Name = MetadataManager.StripDiscSuffix(entry.Name!.Trim()),
+                ProductId = entry.ProductId ?? "",
+                Disc = entry.Disc ?? "1/1",
+                Region = entry.Region ?? "",
+                Version = entry.Version ?? "",
+                ReleaseDate = entry.Date ?? "",
+                Folder = (entry.Folder ?? "").Replace('/', '\\').Trim('\\'),
+                AlternativeFolders = entry.AltFolders?
+                    .Select(f => f.Replace('/', '\\').Trim('\\'))
+                    .ToList() ?? new List<string>(),
+                SdNumber = folderNumber,
+                FullFolderPath = folderPath,
+                WorkMode = WorkMode.None,
+                NeedsMetadataScan = !entry.HasCacheData && hasDiscImage
+            };
+
+            PopulateImageFiles(dbGame, files);
+            return dbGame;
+        }
 
         // Use the file-list overload so sidecar existence checks are
         // in-memory dictionary lookups, not per-file File.Exists calls.

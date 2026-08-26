@@ -112,7 +112,7 @@ public partial class UpdateWizardWindow : Window
         {
             UpdateManager.CleanupStagingDirectory();
             MessageBox.Show(this, $"Update failed: {ex.Message}", "Error",
-                MessageBoxButton.OK, MessageBoxImage.Error);
+                MessageBoxButton.OK, MessageBoxImage.None);
             Close();
         }
     }

@@ -242,7 +242,7 @@ public partial class BatchFolderRenameWindow : Window, INotifyPropertyChanged
         {
             var msgBox = MessageBoxManager.GetMessageBoxStandard("Error",
                 "Only printable ASCII characters (letters, numbers, and standard symbols) are supported.",
-                ButtonEnum.Ok, MsBoxIcon.Warning);
+                ButtonEnum.Ok, MsBoxIcon.None, windowStartupLocation: WindowStartupLocation.CenterOwner);
             await msgBox.ShowWindowDialogAsync(this);
             node.Name = "PLEASE RENAME";
             _editingOriginalName = null;
@@ -383,7 +383,7 @@ public partial class BatchFolderRenameWindow : Window, INotifyPropertyChanged
             {
                 var msgBox = MessageBoxManager.GetMessageBoxStandard("Error",
                     "Cannot move a folder into its own subfolder.",
-                    ButtonEnum.Ok, MsBoxIcon.Warning);
+                    ButtonEnum.Ok, MsBoxIcon.None, windowStartupLocation: WindowStartupLocation.CenterOwner);
                 await msgBox.ShowWindowDialogAsync(this);
                 return;
             }

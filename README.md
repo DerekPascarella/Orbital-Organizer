@@ -41,7 +41,7 @@ Please note that Rhea/Phoebe SD cards must be formatted as FAT32.
 Orbital Organizer is currently at version [2.1.5](https://github.com/DerekPascarella/Orbital-Organizer/releases/tag/2.1.5).
 
 ## Changelog
-- **Version 2.1.4 (2026-09-01)**
+- **Version 2.1.5 (2026-09-01)**
   - Fixed issue causing the wrong disc image to be launched under certain conditions (see [Issue 27](https://github.com/DerekPascarella/Orbital-Organizer/issues/27)).
 - **Version 2.1.4 (2026-08-26)**
   - "File/Folder Lock Check" setting is now remembered without having to save changes to SD card first (see [Issue 24](https://github.com/DerekPascarella/Orbital-Organizer/issues/24)).

@@ -1,4 +1,4 @@
-using System.Collections.ObjectModel;
+﻿using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using System.Text;
@@ -21,6 +21,11 @@ public class Manager : INotifyPropertyChanged
     private MenuKind _menuKindSelected = MenuKind.RmenuKai;
     private bool _useVirtualFolderSubfolders = true;
     private GameDatabase? _gameDb;
+    private bool _reorderPending;
+
+    // Passes allowed when rebuilding the card root in order. One is normally
+    // enough. A second is needed when the free slot search wraps.
+    private const int MaxOrderPasses = 3;
 
     /// <summary>
     /// The list of all games currently loaded. Does not include the menu item (folder 01).
@@ -133,6 +138,11 @@ public class Manager : INotifyPropertyChanged
         KnownFolders.Clear();
         UndoManager.Clear();
         _gameDb = null;
+        _reorderPending = false;
+
+        // A save interrupted partway through leaves game folders in the staging
+        // folder. Put them back before scanning, or the card looks half empty.
+        await Task.Run(() => CardOrder.RecoverStaged(SdCardPath));
 
         // Detect menu type (runs on thread pool to avoid blocking the UI)
         MenuKindDetected = await Task.Run(() => MenuDetector.Detect(SdCardPath));
@@ -292,6 +302,10 @@ public class Manager : INotifyPropertyChanged
             {
                 copyFailure = System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(ex);
             }
+
+            // Runs even when a copy failed, so that nothing is left behind in the
+            // staging folder and the card root is complete either way.
+            await PlaceFoldersInOrderAsync(progress);
 
             // Build and write LIST.INI
             var gamesList = ItemList.Where(g => !g.IsMenuItem && (!g.IsLegacyRmenu || MenuKindSelected == MenuKind.Both)).ToList();
@@ -808,19 +822,24 @@ public class Manager : INotifyPropertyChanged
     {
         // Calculate desired folder numbers (starting at 02)
         int folderNum = 1;
+        bool anyRenumbered = false;
+
         foreach (var game in ItemList)
         {
             if (game.IsMenuItem) continue;
             folderNum++;
 
             if (game.WorkMode != WorkMode.New && game.SdNumber != folderNum)
+            {
                 game.WorkMode = WorkMode.Move;
+                anyRenumbered = true;
+            }
 
             game.SdNumber = folderNum;
         }
 
         // Delete orphaned numbered folders not in the item list.
-        // This must happen BEFORE the GUID rename phase below, because
+        // This must happen BEFORE the staging phase below, because
         // knownFolders is built from items' current FullFolderPath values
         // (which still point to their original numbered folders at this point).
         var knownFolders = new HashSet<string>(
@@ -841,40 +860,113 @@ public class Manager : INotifyPropertyChanged
             }
         }
 
-        // Rename folders that need to move to GUID intermediates
-        var itemsToMove = ItemList.Where(g => g.WorkMode == WorkMode.Move).ToList();
+        // The stored order of the root only changes when folders are created or
+        // renamed. Checking the card as well means a drifted card is repaired on
+        // the next save even when the list itself did not change.
+        bool anyNew = ItemList.Any(g => g.WorkMode == WorkMode.New);
+        _reorderPending = anyRenumbered || anyNew || !CardOrder.IsCardOrdered(SdCardPath);
 
-        foreach (var game in itemsToMove)
+        if (!_reorderPending)
+            return;
+
+        await StageAllFoldersAsync(progress);
+    }
+
+    /// <summary>
+    /// Moves every folder already on the card into the staging folder, named for
+    /// the number it will end up with. Final numbers are unique across the list,
+    /// so staged names can never collide.
+    /// </summary>
+    private async Task StageAllFoldersAsync(IProgress<string>? progress)
+    {
+        string staging = CardOrder.StagingPath(SdCardPath);
+        Directory.CreateDirectory(staging);
+
+        progress?.Report("Staging folders to reorder the card...");
+
+        foreach (var game in ItemList)
         {
-            if (!Directory.Exists(game.FullFolderPath)) continue;
+            if (game.WorkMode == WorkMode.New) continue;
+            if (string.IsNullOrEmpty(game.FullFolderPath) || !Directory.Exists(game.FullFolderPath)) continue;
 
-            string guidName = Guid.NewGuid().ToString("N");
-            string guidPath = Path.Combine(SdCardPath, guidName);
+            string stagedName = game.FolderNumberFormatted;
+            if (stagedName.Length == 0) continue;
 
-            progress?.Report($"Staging {DuplicateDetector.FormatForDisplay(game.Name)}...");
-            await FolderHelper.MoveDirectoryAsync(game.FullFolderPath, guidPath, OnFolderLocked);
-            game.FullFolderPath = guidPath;
+            string stagedPath = Path.Combine(staging, stagedName);
+            if (string.Equals(game.FullFolderPath, stagedPath, StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            await FolderHelper.MoveDirectoryAsync(game.FullFolderPath, stagedPath, OnFolderLocked);
+            game.FullFolderPath = stagedPath;
+        }
+    }
+
+    /// <summary>
+    /// Moves staged folders back to the card root in ascending numeric order, which
+    /// is what makes the filesystem lay their directory entries down in that order.
+    /// The result is verified rather than assumed, because the free slot search
+    /// resumes from a high water mark and can wrap, producing a rotation.
+    /// </summary>
+    private async Task PlaceFoldersInOrderAsync(IProgress<string>? progress)
+    {
+        if (!_reorderPending)
+            return;
+
+        for (int pass = 1; pass <= MaxOrderPasses; pass++)
+        {
+            if (pass > 1)
+            {
+                progress?.Report($"Reordering card, pass {pass}...");
+                await StageAllFoldersAsync(progress);
+            }
+
+            await MoveStagedIntoPlaceAsync(progress);
+
+            if (CardOrder.IsCardOrdered(SdCardPath))
+            {
+                _reorderPending = false;
+                return;
+            }
         }
 
-        // Move from GUID intermediates to final folder numbers
-        foreach (var game in itemsToMove)
+        throw new IOException(
+            "The SD card's folder order could not be corrected after " + MaxOrderPasses +
+            " attempts. Games may launch the wrong title. Close anything using the " +
+            "card and save again.");
+    }
+
+    private async Task MoveStagedIntoPlaceAsync(IProgress<string>? progress)
+    {
+        foreach (var game in ItemList.OrderBy(g => g.SdNumber))
         {
-            if (!Directory.Exists(game.FullFolderPath)) continue;
+            if (string.IsNullOrEmpty(game.FullFolderPath) || !Directory.Exists(game.FullFolderPath)) continue;
 
-            string newFolderName = game.FolderNumberFormatted;
-            string newPath = Path.Combine(SdCardPath, newFolderName);
+            string finalName = game.FolderNumberFormatted;
+            if (finalName.Length == 0) continue;
 
-            progress?.Report($"Folder {newFolderName}: {DuplicateDetector.FormatForDisplay(game.Name)}");
+            string finalPath = Path.Combine(SdCardPath, finalName);
+            if (string.Equals(game.FullFolderPath, finalPath, StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            progress?.Report($"Folder {finalName}: {DuplicateDetector.FormatForDisplay(game.Name)}");
 
             // Wrap the lock callback so the user sees the destination folder name
-            // instead of the meaningless GUID intermediate path
+            // instead of the staging path
             Func<string, Task<bool>>? lockCallback = OnFolderLocked != null
-                ? _ => OnFolderLocked(newPath)
+                ? _ => OnFolderLocked(finalPath)
                 : null;
-            await FolderHelper.MoveDirectoryAsync(game.FullFolderPath, newPath, lockCallback);
-            game.FullFolderPath = newPath;
+            await FolderHelper.MoveDirectoryAsync(game.FullFolderPath, finalPath, lockCallback);
+
+            game.FullFolderPath = finalPath;
             game.WorkMode = WorkMode.None;
+
+            for (int i = 0; i < game.ImageFiles.Count; i++)
+                game.ImageFiles[i] = Path.Combine(finalPath, Path.GetFileName(game.ImageFiles[i]));
         }
+
+        string staging = CardOrder.StagingPath(SdCardPath);
+        if (Directory.Exists(staging) && !Directory.EnumerateFileSystemEntries(staging).Any())
+            Directory.Delete(staging);
     }
 
     private async Task BuildMenuIsoAsync(string folderName, string listIni, string tempDir, bool useRmenuKai, IProgress<string>? progress)
@@ -904,6 +996,18 @@ public class Manager : INotifyPropertyChanged
         });
     }
 
+    /// <summary>
+    /// Where a new item's files are written. While a reorder is pending this is the
+    /// staging folder, so the ordered placement pass allocates the directory entry.
+    /// Writing straight to the root would put a low numbered new folder at the end,
+    /// behind its own 3-digit extensions, which is the bug this all exists to fix.
+    /// </summary>
+    private string NewItemDestination(SaturnGame game)
+    {
+        string root = _reorderPending ? CardOrder.StagingPath(SdCardPath) : SdCardPath;
+        return Path.Combine(root, game.FolderNumberFormatted);
+    }
+
     private async Task CopyNewItemsAsync(IProgress<string>? progress, IProgress<int>? itemProgress = null, int processedCount = 0, string? tempFolderRoot = null)
     {
         var newItems = ItemList.Where(g => g.WorkMode == WorkMode.New && !g.IsLegacyRmenu).ToList();
@@ -913,7 +1017,7 @@ public class Manager : INotifyPropertyChanged
             processedCount++;
             itemProgress?.Report(processedCount);
 
-            string destFolder = Path.Combine(SdCardPath, game.FolderNumberFormatted);
+            string destFolder = NewItemDestination(game);
 
             if (game.FileFormat == FileFormat.Compressed)
             {
@@ -979,7 +1083,7 @@ public class Manager : INotifyPropertyChanged
         var newLegacy = ItemList.Where(g => g.WorkMode == WorkMode.New && g.IsLegacyRmenu).ToList();
         foreach (var game in newLegacy)
         {
-            string destFolder = Path.Combine(SdCardPath, game.FolderNumberFormatted);
+            string destFolder = NewItemDestination(game);
             Directory.CreateDirectory(destFolder);
             game.FullFolderPath = destFolder;
             game.WorkMode = WorkMode.None;

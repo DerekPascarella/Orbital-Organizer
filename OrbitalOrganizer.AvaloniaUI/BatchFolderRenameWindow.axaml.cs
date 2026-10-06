@@ -3,6 +3,8 @@ using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Markup.Xaml;
+using Avalonia.Threading;
+using Avalonia.VisualTree;
 using MsBox.Avalonia;
 using MsBox.Avalonia.Enums;
 using System.Collections.ObjectModel;
@@ -32,6 +34,16 @@ public partial class BatchFolderRenameWindow : Window, INotifyPropertyChanged
     private FolderTreeNode? _draggedNode;
     private FolderTreeNode? _clickedNode;
     private FolderTreeNode? _currentDropTarget;
+
+    // Scrolls the tree a line per tick while a folder drag hovers near its top or
+    // bottom edge. The tick and the drop reuse the last DragOver position because
+    // neither has a reliable pointer position of its own.
+    private readonly DispatcherTimer _dragScrollTimer = new()
+    {
+        Interval = TimeSpan.FromMilliseconds(75)
+    };
+    private Point _dragScrollPosition;
+
     private Stack<UndoOperation> _undoStack = new();
     private const int MaxUndoOperations = 10;
 
@@ -125,9 +137,12 @@ public partial class BatchFolderRenameWindow : Window, INotifyPropertyChanged
     {
         BuildTree(folderCounts, totalItemCount);
 
+        FolderTreeView.AddHandler(DragDrop.DragEnterEvent, Tree_DragOver);
         FolderTreeView.AddHandler(DragDrop.DragOverEvent, Tree_DragOver);
         FolderTreeView.AddHandler(DragDrop.DropEvent, Tree_Drop);
         FolderTreeView.AddHandler(DragDrop.DragLeaveEvent, Tree_DragLeave);
+        _dragScrollTimer.Tick += DragScrollTimer_Tick;
+        Closed += (_, _) => _dragScrollTimer.Stop();
 
         // Tunnel strategy so these fire before TreeViewItem handles the pointer for selection
         FolderTreeView.AddHandler(PointerPressedEvent, Tree_PointerPressed, RoutingStrategies.Tunnel);
@@ -336,6 +351,7 @@ public partial class BatchFolderRenameWindow : Window, INotifyPropertyChanged
             // A failed platform drag just cancels the move
         }
 
+        _dragScrollTimer.Stop();
         _draggedNode = null;
         _clickedNode = null;
         _dragTriggerEvent = null;
@@ -346,8 +362,19 @@ public partial class BatchFolderRenameWindow : Window, INotifyPropertyChanged
     {
         e.DragEffects = _draggedNode != null ? DragDropEffects.Move : DragDropEffects.None;
 
-        var targetNode = (e.Source as Control)?.DataContext as FolderTreeNode;
+        _dragScrollPosition = e.GetPosition(this);
+        SetDropTarget(NodeAt(_dragScrollPosition));
 
+        if (GetDragScrollDirection() != 0)
+            _dragScrollTimer.Start();
+        else
+            _dragScrollTimer.Stop();
+
+        e.Handled = true;
+    }
+
+    private void SetDropTarget(FolderTreeNode? targetNode)
+    {
         if (targetNode != _currentDropTarget)
         {
             if (_currentDropTarget != null)
@@ -357,21 +384,79 @@ public partial class BatchFolderRenameWindow : Window, INotifyPropertyChanged
             if (_currentDropTarget != null)
                 _currentDropTarget.IsDropTarget = true;
         }
-
-        e.Handled = true;
     }
 
     private void Tree_DragLeave(object? sender, RoutedEventArgs e)
     {
+        _dragScrollTimer.Stop();
         ClearDropTarget();
+    }
+
+    private int GetDragScrollDirection()
+    {
+        if (_draggedNode == null || !IsVisible || !FolderTreeView.IsVisible)
+            return 0;
+
+        var scrollViewer = FolderTreeView.GetVisualDescendants().OfType<ScrollViewer>().FirstOrDefault();
+        if (scrollViewer == null)
+            return 0;
+
+        var point = this.TranslatePoint(_dragScrollPosition, scrollViewer);
+        if (point == null || !new Rect(scrollViewer.Bounds.Size).Contains(point.Value))
+            return 0;
+
+        double edgeHeight = Math.Min(32, scrollViewer.Bounds.Height / 2);
+        if (point.Value.Y < edgeHeight)
+            return -1;
+        if (point.Value.Y >= scrollViewer.Bounds.Height - edgeHeight)
+            return 1;
+        return 0;
+    }
+
+    private void DragScrollTimer_Tick(object? sender, EventArgs e)
+    {
+        int direction = GetDragScrollDirection();
+        var scrollViewer = FolderTreeView.GetVisualDescendants().OfType<ScrollViewer>().FirstOrDefault();
+        if (direction == 0 || scrollViewer == null ||
+            (direction < 0 && scrollViewer.Offset.Y <= 0) ||
+            (direction > 0 && scrollViewer.Offset.Y >= scrollViewer.ScrollBarMaximum.Y))
+        {
+            _dragScrollTimer.Stop();
+            return;
+        }
+
+        if (direction < 0)
+            scrollViewer.LineUp();
+        else
+            scrollViewer.LineDown();
+
+        FolderTreeView.UpdateLayout();
+        SetDropTarget(NodeAt(_dragScrollPosition));
+    }
+
+    // A drag event's Source and InputHitTest come from the last rendered frame, which
+    // can predate a timer scroll, so the node comes from layout. Nested items follow
+    // their parents, so the last match is the deepest.
+    private FolderTreeNode? NodeAt(Point point)
+    {
+        FolderTreeNode? target = null;
+        foreach (var item in FolderTreeView.GetVisualDescendants().OfType<TreeViewItem>())
+        {
+            var origin = item.TranslatePoint(new Point(0, 0), this);
+            if (item.IsEffectivelyVisible && origin != null &&
+                new Rect(origin.Value, item.Bounds.Size).Contains(point))
+                target = item.DataContext as FolderTreeNode;
+        }
+        return target;
     }
 
     private async void Tree_Drop(object? sender, DragEventArgs e)
     {
+        _dragScrollTimer.Stop();
         try
         {
             var droppedNode = _draggedNode;
-            var targetNode = (e.Source as Control)?.DataContext as FolderTreeNode;
+            var targetNode = NodeAt(_dragScrollPosition);
 
             if (droppedNode == null || targetNode == null || droppedNode == targetNode)
                 return;

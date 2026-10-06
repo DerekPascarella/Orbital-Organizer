@@ -98,17 +98,9 @@ public static class LockChecker
                 }
                 else if (Directory.Exists(path))
                 {
-                    var dirError = CheckDirectoryCanBeRenamed(path);
-                    if (dirError != null)
-                    {
-                        locked[path] = dirError;
-                    }
-                    else
-                    {
-                        var fileErrors = CheckDirectoryAccessibility(path);
-                        foreach (var kvp in fileErrors)
-                            locked[kvp.Key] = kvp.Value;
-                    }
+                    var fileErrors = CheckDirectoryAccessibility(path);
+                    foreach (var kvp in fileErrors)
+                        locked[kvp.Key] = kvp.Value;
                 }
             });
 

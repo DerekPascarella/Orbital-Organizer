@@ -24,6 +24,8 @@ public class GameDatabase
         Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping
     };
 
+    internal string Serialize() => JsonSerializer.Serialize(this, SerializerOptions);
+
     public static string GetPath(string sdCardPath) =>
         Path.Combine(sdCardPath, Constants.GameDatabaseFile);
 

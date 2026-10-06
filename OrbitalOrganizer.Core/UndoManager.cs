@@ -14,14 +14,30 @@ public class UndoManager : INotifyPropertyChanged
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
-    public bool CanUndo => _undoStack.Count > 0;
-    public bool CanRedo => _redoStack.Count > 0;
+    private readonly Action? _ensureCanMutate;
+    private readonly Func<bool>? _canEdit;
+    private readonly Action<Action>? _notifyObservers;
+
+    public UndoManager() { }
+
+    internal UndoManager(Action ensureCanMutate, Func<bool> canEdit, Action<Action> notifyObservers)
+    {
+        _ensureCanMutate = ensureCanMutate;
+        _canEdit = canEdit;
+        _notifyObservers = notifyObservers;
+    }
+
+    public bool CanUndo => (_canEdit?.Invoke() ?? true) && _undoStack.Count > 0;
+    public bool CanRedo => (_canEdit?.Invoke() ?? true) && _redoStack.Count > 0;
+
+    internal void NotifyEligibilityChanged() => RaiseAllPropertyChanges();
 
     public string UndoDescription => _undoStack.Count > 0 ? _undoStack.Last!.Value.Description : "";
     public string RedoDescription => _redoStack.Count > 0 ? _redoStack.Last!.Value.Description : "";
 
     public void RecordChange(UndoOperation operation)
     {
+        _ensureCanMutate?.Invoke();
         if (operation == null) return;
 
         _undoStack.AddLast(operation);
@@ -35,12 +51,12 @@ public class UndoManager : INotifyPropertyChanged
 
     public void Undo()
     {
+        _ensureCanMutate?.Invoke();
         if (_undoStack.Count == 0) return;
 
         var operation = _undoStack.Last!.Value;
-        _undoStack.RemoveLast();
-
         operation.Undo();
+        _undoStack.RemoveLast();
 
         _redoStack.AddLast(operation);
         while (_redoStack.Count > MaxHistorySize)
@@ -51,12 +67,12 @@ public class UndoManager : INotifyPropertyChanged
 
     public void Redo()
     {
+        _ensureCanMutate?.Invoke();
         if (_redoStack.Count == 0) return;
 
         var operation = _redoStack.Last!.Value;
-        _redoStack.RemoveLast();
-
         operation.Redo();
+        _redoStack.RemoveLast();
 
         _undoStack.AddLast(operation);
         while (_undoStack.Count > MaxHistorySize)
@@ -67,6 +83,7 @@ public class UndoManager : INotifyPropertyChanged
 
     public void Clear()
     {
+        _ensureCanMutate?.Invoke();
         _undoStack.Clear();
         _redoStack.Clear();
         RaiseAllPropertyChanges();
@@ -82,7 +99,9 @@ public class UndoManager : INotifyPropertyChanged
 
     private void RaisePropertyChanged([CallerMemberName] string? propertyName = null)
     {
-        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+        void Notify() => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+        if (_notifyObservers == null) Notify();
+        else _notifyObservers(Notify);
     }
 }
 
@@ -201,13 +220,19 @@ public class MultiItemAddOperation : UndoOperation
     public ObservableCollection<SaturnGame> ItemList { get; set; } = null!;
     public List<(SaturnGame Item, int Index)> Items { get; set; } = new();
 
+    public Action<SaturnGame>? OnItemRestored { get; set; }
+    public Action<SaturnGame>? OnItemRemoved { get; set; }
+
     public override string Description => Items.Count == 1 ? "Add Item" : $"Add {Items.Count} Items";
 
     public override void Undo()
     {
         if (ItemList == null) return;
         for (int i = Items.Count - 1; i >= 0; i--)
+        {
             ItemList.Remove(Items[i].Item);
+            OnItemRemoved?.Invoke(Items[i].Item);
+        }
     }
 
     public override void Redo()
@@ -219,9 +244,11 @@ public class MultiItemAddOperation : UndoOperation
                 ItemList.Insert(index, item);
             else
                 ItemList.Add(item);
+            OnItemRestored?.Invoke(item);
         }
     }
 }
+
 
 public class BatchFolderRenameOperation : UndoOperation
 {
@@ -285,6 +312,16 @@ public class MultiItemRemoveOperation : UndoOperation
     public ObservableCollection<SaturnGame> ItemList { get; set; } = null!;
     public List<(SaturnGame Item, int Index)> Items { get; set; } = new();
 
+    /// <summary>
+    /// Invoked per item on undo so the Manager can unflag pending folder deletion.
+    /// </summary>
+    public Action<SaturnGame>? OnItemRestored { get; set; }
+
+    /// <summary>
+    /// Invoked per item on redo so the Manager can re-flag pending folder deletion.
+    /// </summary>
+    public Action<SaturnGame>? OnItemRemoved { get; set; }
+
     public override string Description => Items.Count == 1 ? "Remove Item" : $"Remove {Items.Count} Items";
 
     public override void Undo()
@@ -299,6 +336,8 @@ public class MultiItemRemoveOperation : UndoOperation
                 ItemList.Insert(index, item);
             else
                 ItemList.Add(item);
+
+            OnItemRestored?.Invoke(item);
         }
     }
 
@@ -309,6 +348,11 @@ public class MultiItemRemoveOperation : UndoOperation
         sorted.Sort((a, b) => b.Index.CompareTo(a.Index));
 
         foreach (var (item, _) in sorted)
+        {
             ItemList.Remove(item);
+            OnItemRemoved?.Invoke(item);
+        }
     }
 }
+
+

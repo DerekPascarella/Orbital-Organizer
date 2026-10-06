@@ -115,7 +115,7 @@ public static class CardScanner
     /// (if an entry is provided), then falls back to IP.BIN parsing for
     /// anything still missing. Writes sidecar files so future loads are fast.
     /// </summary>
-    public static void ScanAndCacheMetadata(SaturnGame game, MigrationService.ListIniEntry? listIniEntry = null)
+    public static void ScanAndCacheMetadata(SaturnGame game, MigrationService.ListIniEntry? listIniEntry = null, bool writeSidecars = true)
     {
         if (string.IsNullOrEmpty(game.FullFolderPath))
             return;
@@ -201,8 +201,8 @@ public static class CardScanner
         if (string.IsNullOrWhiteSpace(game.Version)) game.Version = "NA";
         if (string.IsNullOrWhiteSpace(game.ReleaseDate)) game.ReleaseDate = "NA";
 
-        // Write sidecar files so the next load is fast
-        MetadataManager.WriteMissingSidecarFiles(folderPath, game);
+        if (writeSidecars) MetadataManager.WriteMissingSidecarFiles(folderPath, game);
+        else game.SidecarsDirty = true;
 
         game.NeedsMetadataScan = false;
     }

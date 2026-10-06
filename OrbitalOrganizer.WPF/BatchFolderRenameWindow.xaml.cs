@@ -314,6 +314,8 @@ public partial class BatchFolderRenameWindow : Window, INotifyPropertyChanged
                 if (_currentDropTarget != null)
                     _currentDropTarget.IsDropTarget = true;
             }
+
+            ScrollTreeNearEdge(e);
         }
         else
         {
@@ -321,6 +323,35 @@ public partial class BatchFolderRenameWindow : Window, INotifyPropertyChanged
             ClearDropTarget();
         }
         e.Handled = true;
+    }
+
+    private void ScrollTreeNearEdge(DragEventArgs e)
+    {
+        var scrollViewer = FindVisualChild<ScrollViewer>(FolderTreeView);
+        if (scrollViewer == null)
+            return;
+
+        double y = e.GetPosition(scrollViewer).Y;
+        double margin = Math.Min(scrollViewer.FontSize * 2, scrollViewer.ActualHeight / 2);
+        if (y < margin)
+            scrollViewer.LineUp();
+        else if (y >= scrollViewer.ActualHeight - margin)
+            scrollViewer.LineDown();
+    }
+
+    private static T? FindVisualChild<T>(DependencyObject parent) where T : DependencyObject
+    {
+        for (int i = 0; i < VisualTreeHelper.GetChildrenCount(parent); i++)
+        {
+            var child = VisualTreeHelper.GetChild(parent, i);
+            if (child is T found)
+                return found;
+
+            var result = FindVisualChild<T>(child);
+            if (result != null)
+                return result;
+        }
+        return null;
     }
 
     private void ClearDropTarget()
@@ -340,7 +371,10 @@ public partial class BatchFolderRenameWindow : Window, INotifyPropertyChanged
             {
                 var droppedNode = e.Data.GetData(typeof(FolderTreeNode)) as FolderTreeNode;
                 var targetElement = e.OriginalSource as FrameworkElement;
-                var targetNode = targetElement?.DataContext as FolderTreeNode;
+                // An edge scroll can move the highlighted folder off the pointer, so it wins.
+                // DragLeave clears the highlight each time the pointer crosses into another
+                // element, and a drop before the next DragOver uses the element under the pointer.
+                var targetNode = _currentDropTarget ?? targetElement?.DataContext as FolderTreeNode;
 
                 if (droppedNode != null && targetNode != null && droppedNode != targetNode)
                 {

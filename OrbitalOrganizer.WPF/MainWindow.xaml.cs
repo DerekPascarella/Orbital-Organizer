@@ -29,11 +29,25 @@ public partial class MainWindow : Window, GongSolutions.Wpf.DragDrop.IDropTarget
     // display labels and the path can't be recovered from them.
     private readonly List<string> _drivePaths = new();
 
+    private bool CannotEdit => IsBusy || !_manager.CanEdit || !HasSdPath;
+    private int _operationVersion;
+    private int _rowDragVersion;
+    private bool _allowClose;
+    private object? _rowDragInfo;
+
     private bool _isBusy;
     public bool IsBusy
     {
-        get => _isBusy;
-        set { _isBusy = value; RaisePropertyChanged(); }
+        get => _isBusy || _manager.IsOperationActive;
+        set
+        {
+            _isBusy = value;
+            if (value)
+            {
+                _operationVersion++;
+            }
+            RaisePropertyChanged();
+        }
     }
 
     private bool _isUsingCustomPath;
@@ -85,6 +99,18 @@ public partial class MainWindow : Window, GongSolutions.Wpf.DragDrop.IDropTarget
         Title = "Orbital Organizer v" + Constants.Version;
         DataContext = this;
 
+        _manager.OnDiscardIncompletePreparation = path => Dispatcher.InvokeAsync(() =>
+            MessageBox.Show(this, "Discard this incomplete preparation? Completed imports are retained.\n\n" + path,
+                "Incomplete Preparation", MessageBoxButton.YesNo, MessageBoxImage.None) == MessageBoxResult.Yes).Task;
+        _manager.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName != nameof(Manager.IsOperationActive)) return;
+            Dispatcher.InvokeAsync(() =>
+            {
+                if (_manager.IsOperationActive) _operationVersion++;
+                RaisePropertyChanged(nameof(IsBusy));
+            });
+        };
         _settings = AppSettings.Load();
         ApplySettings();
 
@@ -94,36 +120,21 @@ public partial class MainWindow : Window, GongSolutions.Wpf.DragDrop.IDropTarget
 
         _manager.ItemList.CollectionChanged += (_, _) => { UpdateGamesListHeader(); UpdateSearchMatches(); };
 
-        _manager.OnFolderLocked = (path) =>
-        {
-            var result = MessageBox.Show(this,
-                $"The following folder is open in another program:\n\n{path}\n\n" +
-                "Close any programs using it, then click Yes to retry.",
-                "Confirmation", MessageBoxButton.YesNo, MessageBoxImage.None);
-            return Task.FromResult(result == MessageBoxResult.Yes);
-        };
+        _manager.OnFolderLocked = path => ConfirmOnUiAsync(
+            $"The following folder is open in another program:\n\n{path}\n\nClose any programs using it, then click Yes to retry.");
 
-        _manager.OnGameDbUnreadable = () =>
-        {
-            var result = MessageBox.Show(this,
-                "The GameDB.json database on this card could not be read.\n\n" +
-                "Rebuild it from the text files?",
-                "Game Database", MessageBoxButton.YesNo, MessageBoxImage.None);
-            return Task.FromResult(result == MessageBoxResult.Yes);
-        };
+        _manager.OnGameDbUnreadable = () => ConfirmOnUiAsync(
+            "The GameDB.json database on this card could not be read.\n\nRebuild it from the text files?");
 
-        _manager.OnChooseArchiveAddMode = (archiveCount) =>
+        _manager.OnChooseArchiveAddMode = count => Dispatcher.InvokeAsync(() =>
         {
-            var dialog = new ArchiveAddModeDialog(archiveCount) { Owner = this };
+            var dialog = new ArchiveAddModeDialog(count) { Owner = this };
             dialog.ShowDialog();
-            return Task.FromResult(dialog.Result);
-        };
+            return dialog.Result;
+        }).Task;
 
-        _manager.OnArchiveWarning = (message) =>
-        {
-            MessageBox.Show(this, message, "Warning", MessageBoxButton.OK, MessageBoxImage.None);
-            return Task.CompletedTask;
-        };
+        _manager.OnArchiveWarning = message => Dispatcher.InvokeAsync(() =>
+            MessageBox.Show(this, message, "Warning", MessageBoxButton.OK, MessageBoxImage.None)).Task;
 
         this.Loaded += MainWindow_Loaded;
         this.Closing += MainWindow_Closing;
@@ -131,6 +142,9 @@ public partial class MainWindow : Window, GongSolutions.Wpf.DragDrop.IDropTarget
 
         RefreshDriveList();
     }
+
+    private Task<bool> ConfirmOnUiAsync(string message) => Dispatcher.InvokeAsync(() =>
+        MessageBox.Show(this, message, "Confirmation", MessageBoxButton.YesNo, MessageBoxImage.None) == MessageBoxResult.Yes).Task;
 
     private void MainWindow_Loaded(object sender, RoutedEventArgs e)
     {
@@ -227,7 +241,7 @@ public partial class MainWindow : Window, GongSolutions.Wpf.DragDrop.IDropTarget
 
     private void MainWindow_Closing(object? sender, CancelEventArgs e)
     {
-        if (IsBusy)
+        if (!_allowClose && (IsBusy || _manager.IsOperationActive))
         {
             e.Cancel = true;
             return;
@@ -256,6 +270,7 @@ public partial class MainWindow : Window, GongSolutions.Wpf.DragDrop.IDropTarget
 
     private void RefreshDriveList()
     {
+        if (IsBusy || _manager.IsOperationActive) return;
         IsUsingCustomPath = false;
         CustomSdPath = string.Empty;
         DriveComboBox.Items.Clear();
@@ -278,11 +293,12 @@ public partial class MainWindow : Window, GongSolutions.Wpf.DragDrop.IDropTarget
                 {
                     try
                     {
+                        // Real cards are FAT32. Skipping other formats keeps a sleeping HDD from
+                        // spinning up and stalling launch.
                         string root = drive.RootDirectory.FullName;
-                        if (File.Exists(Path.Combine(root, "Rhea.ini")) ||
-                            File.Exists(Path.Combine(root, "Phoebe.ini")) ||
-                            File.Exists(Path.Combine(root, "rhea.ini")) ||
-                            File.Exists(Path.Combine(root, "phoebe.ini")))
+                        if (drive.DriveFormat.StartsWith("FAT") &&
+                            (PathCasing.FileExistsIgnoreCase(Path.Combine(root, "Rhea.ini")) ||
+                             PathCasing.FileExistsIgnoreCase(Path.Combine(root, "Phoebe.ini"))))
                         {
                             autoSelectIndex = index;
                         }
@@ -302,83 +318,126 @@ public partial class MainWindow : Window, GongSolutions.Wpf.DragDrop.IDropTarget
 
     private async void ButtonBrowseSdPath_Click(object sender, RoutedEventArgs e)
     {
-        var dialog = new System.Windows.Forms.FolderBrowserDialog
+        if (IsBusy || _manager.IsOperationActive) return;
+        IsBusy = true;
+        try
         {
-            Description = "Select SD card or folder",
-            UseDescriptionForTitle = true
-        };
+            var dialog = new System.Windows.Forms.FolderBrowserDialog
+            {
+                Description = "Select SD card or folder",
+                UseDescriptionForTitle = true
+            };
 
-        if (dialog.ShowDialog(new Win32Window(this)) != System.Windows.Forms.DialogResult.OK) return;
+            if (dialog.ShowDialog(new Win32Window(this)) != System.Windows.Forms.DialogResult.OK) return;
 
-        string folderPath = dialog.SelectedPath;
+            string folderPath = dialog.SelectedPath;
 
-        IsUsingCustomPath = true;
-        CustomSdPath = folderPath;
-        DriveComboBox.SelectedIndex = -1;
+            IsUsingCustomPath = true;
+            CustomSdPath = folderPath;
+            DriveComboBox.SelectedIndex = -1;
 
-        string appDir = AppDomain.CurrentDomain.BaseDirectory;
-        _manager.ToolsPath = Path.Combine(appDir, "tools");
-        _manager.SdCardPath = folderPath;
+            string appDir = AppDomain.CurrentDomain.BaseDirectory;
+            _manager.ToolsPath = Path.Combine(appDir, "tools");
+            _manager.SdCardPath = folderPath;
 
-        RaisePropertyChanged(nameof(HasSdPath));
-        await LoadCard();
+            RaisePropertyChanged(nameof(HasSdPath));
+            await LoadCardOwned();
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(this, ex.Message, "Error", MessageBoxButton.OK, MessageBoxImage.None);
+        }
+        finally { IsBusy = false; }
     }
 
     private void ButtonBrowseTempFolder_Click(object sender, RoutedEventArgs e)
     {
-        var dialog = new System.Windows.Forms.FolderBrowserDialog
+        if (IsBusy || _manager.IsOperationActive) return;
+        IsBusy = true;
+        try
         {
-            Description = "Select temporary folder",
-            UseDescriptionForTitle = true,
-            SelectedPath = TempFolderTextBox.Text ?? ""
-        };
 
-        if (dialog.ShowDialog(new Win32Window(this)) != System.Windows.Forms.DialogResult.OK) return;
+            var dialog = new System.Windows.Forms.FolderBrowserDialog
+            {
+                Description = "Select temporary folder",
+                UseDescriptionForTitle = true,
+                SelectedPath = TempFolderTextBox.Text ?? ""
+            };
 
-        TempFolderTextBox.Text = dialog.SelectedPath;
-        SaveSettings();
+            if (dialog.ShowDialog(new Win32Window(this)) != System.Windows.Forms.DialogResult.OK) return;
+
+            TempFolderTextBox.Text = dialog.SelectedPath;
+            SaveSettings();
+        }
+        finally { IsBusy = false; }
     }
 
     private void ButtonResetTempFolder_Click(object sender, RoutedEventArgs e)
     {
-        var result = MessageBox.Show(this,
+        if (IsBusy || _manager.IsOperationActive) return;
+        IsBusy = true;
+        try
+        {
+
+            var result = MessageBox.Show(this,
             "Reset the Temporary Folder path to default?",
             "Confirmation",
             MessageBoxButton.YesNo, MessageBoxImage.None);
-        if (result != MessageBoxResult.Yes) return;
+            if (result != MessageBoxResult.Yes) return;
 
-        TempFolderTextBox.Text = Path.GetTempPath().TrimEnd(Path.DirectorySeparatorChar);
-        SaveSettings();
+            TempFolderTextBox.Text = Path.GetTempPath().TrimEnd(Path.DirectorySeparatorChar);
+            SaveSettings();
+        }
+        finally { IsBusy = false; }
     }
 
     private void LockCheckBox_Click(object sender, RoutedEventArgs e) => SaveSettings();
 
     private async void DriveList_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        int selectedIndex = DriveComboBox.SelectedIndex;
-        if (selectedIndex < 0 || selectedIndex >= _drivePaths.Count || IsBusy) return;
+        if (IsBusy || _manager.IsOperationActive) return;
+        IsBusy = true;
+        try
+        {
+            int selectedIndex = DriveComboBox.SelectedIndex;
+            if (selectedIndex < 0 || selectedIndex >= _drivePaths.Count) return;
 
-        string drivePath = _drivePaths[selectedIndex];
+            string drivePath = _drivePaths[selectedIndex];
 
-        IsUsingCustomPath = false;
-        CustomSdPath = string.Empty;
+            IsUsingCustomPath = false;
+            CustomSdPath = string.Empty;
 
-        string appDir = AppDomain.CurrentDomain.BaseDirectory;
-        _manager.ToolsPath = Path.Combine(appDir, "tools");
-        _manager.SdCardPath = drivePath;
+            string appDir = AppDomain.CurrentDomain.BaseDirectory;
+            _manager.ToolsPath = Path.Combine(appDir, "tools");
+            _manager.SdCardPath = drivePath;
 
-        RaisePropertyChanged(nameof(HasSdPath));
-        await LoadCard();
+            RaisePropertyChanged(nameof(HasSdPath));
+            await LoadCardOwned();
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(this, ex.Message, "Error", MessageBoxButton.OK, MessageBoxImage.None);
+        }
+        finally { IsBusy = false; }
     }
 
     private async Task LoadCard()
     {
+        if (IsBusy || _manager.IsOperationActive) return;
         IsBusy = true;
+        try { await LoadCardOwned(); }
+        finally { IsBusy = false; }
+    }
+
+    private async Task LoadCardOwned()
+    {
+
         FilterTextBox.Text = string.Empty;
         IsFilterActive = false;
 
         try
         {
+            await _manager.RecoverCardAsync();
             bool migrationApproved = false;
             if (await _manager.CheckGameDbMigrationNeededAsync())
             {
@@ -437,6 +496,7 @@ public partial class MainWindow : Window, GongSolutions.Wpf.DragDrop.IDropTarget
                 }
                 else
                 {
+                    _allowClose = true;
                     System.Windows.Application.Current.Shutdown();
                     return;
                 }
@@ -445,10 +505,6 @@ public partial class MainWindow : Window, GongSolutions.Wpf.DragDrop.IDropTarget
         catch (Exception ex)
         {
             MessageBox.Show(this, ex.Message, "Error", MessageBoxButton.OK, MessageBoxImage.None);
-        }
-        finally
-        {
-            IsBusy = false;
         }
     }
 
@@ -480,6 +536,7 @@ public partial class MainWindow : Window, GongSolutions.Wpf.DragDrop.IDropTarget
 
     private void MenuType_Changed(object sender, RoutedEventArgs e)
     {
+        if (CannotEdit && !_suppressMenuTypeChange) return;
         if (_suppressMenuTypeChange) return;
         if (sender is not RadioButton rb) return;
 
@@ -568,23 +625,42 @@ public partial class MainWindow : Window, GongSolutions.Wpf.DragDrop.IDropTarget
 
     // --- Game list operations ---
 
-    private void ButtonAdd_Click(object sender, RoutedEventArgs e)
+    private async void ButtonAdd_Click(object sender, RoutedEventArgs e)
     {
-        var dialog = new OpenFileDialog
+        if (CannotEdit) return;
+        if (!CommitPendingEdit()) return;
+        IsBusy = true;
+        try
         {
-            Title = "Select disc image file(s)",
-            Multiselect = true,
-            Filter = "Saturn Disc Images (*.cdi;*.mdf;*.img;*.iso;*.ccd;*.cue;*.chd;*.7z;*.rar;*.zip)|*.cdi;*.mdf;*.img;*.iso;*.ccd;*.cue;*.chd;*.7z;*.rar;*.zip|All Files (*.*)|*.*"
-        };
+            var dialog = new OpenFileDialog
+            {
+                Title = "Select disc image file(s)",
+                Multiselect = true,
+                Filter = "Saturn Disc Images (*.cdi;*.mdf;*.img;*.iso;*.ccd;*.cue;*.chd;*.7z;*.rar;*.zip)|*.cdi;*.mdf;*.img;*.iso;*.ccd;*.cue;*.chd;*.7z;*.rar;*.zip|All Files (*.*)|*.*"
+            };
 
-        if (dialog.ShowDialog(this) != true) return;
+            if (dialog.ShowDialog(this) != true) return;
 
-        _ = AddGamesFromPaths(dialog.FileNames);
+            await AddGamesFromPathsOwned(dialog.FileNames);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(this, ex.Message, "Error", MessageBoxButton.OK, MessageBoxImage.None);
+        }
+        finally { IsBusy = false; }
     }
 
     private async Task AddGamesFromPaths(string[] paths, int insertIndex = -1)
     {
+        if (CannotEdit || !CommitPendingEdit()) return;
         IsBusy = true;
+        try { await AddGamesFromPathsOwned(paths, insertIndex); }
+        finally { IsBusy = false; }
+    }
+
+    private async Task AddGamesFromPathsOwned(string[] paths, int insertIndex = -1)
+    {
+
 
         ProgressWindow? progressWindow = null;
         if (paths.Length > 1)
@@ -622,12 +698,13 @@ public partial class MainWindow : Window, GongSolutions.Wpf.DragDrop.IDropTarget
                 progressWindow.AllowClose();
                 progressWindow.Close();
             }
-            IsBusy = false;
+
         }
     }
 
     private void ButtonRemove_Click(object sender, RoutedEventArgs e)
     {
+        if (CannotEdit) return;
         var selected = GameGrid.SelectedItems?.Cast<SaturnGame>().ToList();
         if (selected == null || selected.Count == 0) return;
 
@@ -636,6 +713,7 @@ public partial class MainWindow : Window, GongSolutions.Wpf.DragDrop.IDropTarget
 
     private void ButtonMoveUp_Click(object sender, RoutedEventArgs e)
     {
+        if (CannotEdit) return;
         if (GameGrid.SelectedItem is not SaturnGame item) return;
         if (item.IsMenuItem) return;
         int index = _manager.ItemList.IndexOf(item);
@@ -656,6 +734,7 @@ public partial class MainWindow : Window, GongSolutions.Wpf.DragDrop.IDropTarget
 
     private void ButtonMoveDown_Click(object sender, RoutedEventArgs e)
     {
+        if (CannotEdit) return;
         if (GameGrid.SelectedItem is not SaturnGame item) return;
         if (item.IsMenuItem) return;
 
@@ -674,26 +753,31 @@ public partial class MainWindow : Window, GongSolutions.Wpf.DragDrop.IDropTarget
 
     private void ButtonBatchFolderRename_Click(object sender, RoutedEventArgs e)
     {
+        if (CannotEdit) return;
+        if (!CommitPendingEdit()) return;
+        IsBusy = true;
         try
         {
-            if (IsFilterActive) return;
-            if (_manager.ItemList.Count == 0) return;
-
-            var folderCounts = _manager.GetFolderCounts();
-
-            if (folderCounts.Count == 0)
+            try
             {
-                MessageBox.Show(this, "No folders found in the current game list.",
+                if (IsFilterActive) return;
+                if (_manager.ItemList.Count == 0) return;
+
+                var folderCounts = _manager.GetFolderCounts();
+
+                if (folderCounts.Count == 0)
+                {
+                    MessageBox.Show(this, "No folders found in the current game list.",
                     "Information", MessageBoxButton.OK, MessageBoxImage.None);
-                return;
-            }
+                    return;
+                }
 
-            var window = new BatchFolderRenameWindow(folderCounts, _manager.ItemList.Count);
-            window.Owner = this;
+                var window = new BatchFolderRenameWindow(folderCounts, _manager.ItemList.Count);
+                window.Owner = this;
 
-            if (window.ShowDialog() == true && window.FolderMappings != null)
-            {
-                var snapshots = _manager.ItemList
+                if (window.ShowDialog() == true && window.FolderMappings != null)
+                {
+                    var snapshots = _manager.ItemList
                     .Select(g => new BatchFolderRenameOperation.ItemSnapshot
                     {
                         Item = g,
@@ -701,54 +785,71 @@ public partial class MainWindow : Window, GongSolutions.Wpf.DragDrop.IDropTarget
                         OldAltFolders = new List<string>(g.AlternativeFolders)
                     }).ToList();
 
-                var (updatedCount, conflictsRemoved) = _manager.ApplyFolderMappings(window.FolderMappings);
+                    var (updatedCount, conflictsRemoved) = _manager.ApplyFolderMappings(window.FolderMappings);
 
-                if (updatedCount > 0 || conflictsRemoved > 0)
-                {
-                    var undoOp = new BatchFolderRenameOperation();
-                    foreach (var s in snapshots)
+                    if (updatedCount > 0 || conflictsRemoved > 0)
                     {
-                        s.NewFolder = s.Item.Folder;
-                        s.NewAltFolders = new List<string>(s.Item.AlternativeFolders);
-                        if (s.OldFolder != s.NewFolder ||
+                        var undoOp = new BatchFolderRenameOperation();
+                        foreach (var s in snapshots)
+                        {
+                            s.NewFolder = s.Item.Folder;
+                            s.NewAltFolders = new List<string>(s.Item.AlternativeFolders);
+                            if (s.OldFolder != s.NewFolder ||
                             !s.OldAltFolders.SequenceEqual(s.NewAltFolders))
-                            undoOp.Snapshots.Add(s);
+                                undoOp.Snapshots.Add(s);
+                        }
+
+                        if (undoOp.Snapshots.Count > 0)
+                            _manager.UndoManager.RecordChange(undoOp);
+
+                        _manager.RefreshKnownFolders();
+
+                        var msg = $"{updatedCount} disc image(s) updated across {window.FolderMappings.Count} folder(s).";
+                        if (conflictsRemoved > 0)
+                            msg += $"\n{conflictsRemoved} duplicate additional folder path(s) were automatically removed.";
+                        msg += "\n\nClick 'Save Changes' to write updates to SD card.";
+                        MessageBox.Show(this, msg, "Information", MessageBoxButton.OK, MessageBoxImage.None);
                     }
-
-                    if (undoOp.Snapshots.Count > 0)
-                        _manager.UndoManager.RecordChange(undoOp);
-
-                    _manager.RefreshKnownFolders();
-
-                    var msg = $"{updatedCount} disc image(s) updated across {window.FolderMappings.Count} folder(s).";
-                    if (conflictsRemoved > 0)
-                        msg += $"\n{conflictsRemoved} duplicate additional folder path(s) were automatically removed.";
-                    msg += "\n\nClick 'Save Changes' to write updates to SD card.";
-                    MessageBox.Show(this, msg, "Information", MessageBoxButton.OK, MessageBoxImage.None);
-                }
-                else
-                {
-                    MessageBox.Show(this, "No changes were made.",
+                    else
+                    {
+                        MessageBox.Show(this, "No changes were made.",
                         "Information", MessageBoxButton.OK, MessageBoxImage.None);
+                    }
                 }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(this, ex.Message, "Error", MessageBoxButton.OK, MessageBoxImage.None);
             }
         }
         catch (Exception ex)
         {
             MessageBox.Show(this, ex.Message, "Error", MessageBoxButton.OK, MessageBoxImage.None);
         }
+        finally { IsBusy = false; }
     }
 
     private void ButtonSort_Click(object sender, RoutedEventArgs e)
     {
-        var result = MessageBox.Show(this,
+        if (CannotEdit) return;
+        if (!CommitPendingEdit()) return;
+        IsBusy = true;
+        try
+        {
+            var result = MessageBox.Show(this,
             "Your disc images will be automatically sorted in alphanumeric order " +
             "based on a combination of Folder and Title.\n\nProceed?",
             "Confirmation", MessageBoxButton.YesNo, MessageBoxImage.None);
 
-        if (result != MessageBoxResult.Yes) return;
+            if (result != MessageBoxResult.Yes) return;
 
-        _manager.SortList();
+            _manager.SortList();
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(this, ex.Message, "Error", MessageBoxButton.OK, MessageBoxImage.None);
+        }
+        finally { IsBusy = false; }
     }
 
     private void ButtonSearch_Click(object sender, RoutedEventArgs e)
@@ -823,92 +924,100 @@ public partial class MainWindow : Window, GongSolutions.Wpf.DragDrop.IDropTarget
 
     private async void ButtonSave_Click(object sender, RoutedEventArgs e)
     {
-        if (string.IsNullOrEmpty(_manager.SdCardPath))
+        if (IsBusy || _manager.IsOperationActive) return;
+        if (!CommitPendingEdit()) return;
+        IsBusy = true;
+        try
         {
-            MessageBox.Show(this, "No SD card selected.", "Error", MessageBoxButton.OK, MessageBoxImage.None);
-            return;
-        }
+            await _manager.RecoverCardAsync();
+            if (string.IsNullOrEmpty(_manager.SdCardPath))
+            {
+                MessageBox.Show(this, "No SD card selected.", "Error", MessageBoxButton.OK, MessageBoxImage.None);
+                return;
+            }
 
-        var confirmResult = MessageBox.Show(this,
+            var confirmResult = MessageBox.Show(this,
             $"Save changes to \"{_manager.SdCardPath}\" drive?",
             "Confirmation", MessageBoxButton.YesNo, MessageBoxImage.None);
 
-        if (confirmResult != MessageBoxResult.Yes) return;
+            if (confirmResult != MessageBoxResult.Yes) return;
 
-        // Prompt for console region if INI files need to be created
-        if (_manager.NeedsIniFiles())
-        {
-            var regionDialog = new RegionSelectDialog();
-            regionDialog.Owner = this;
-            regionDialog.ShowDialog();
-            _manager.PendingConsoleRegion = regionDialog.SelectedRegionCode;
-        }
-
-        var spaceCheck = await _manager.CalculateRequiredSpaceAsync();
-        if (!spaceCheck.HasSufficientSpace)
-        {
-            var proceed = MessageBox.Show(this,
-                Manager.BuildSpaceWarningMessage(spaceCheck),
-                "Confirmation", MessageBoxButton.YesNo, MessageBoxImage.None);
-            if (proceed != MessageBoxResult.Yes) return;
-        }
-
-        IsBusy = true;
-
-        try
-        {
-            if (LockCheckBox.IsChecked == true)
+            // Prompt for console region if INI files need to be created
+            if (_manager.NeedsIniFiles())
             {
-                bool lockCheckPassed = await RunLockCheck();
-                if (!lockCheckPassed)
-                    return;
+                var regionDialog = new RegionSelectDialog();
+                regionDialog.Owner = this;
+                regionDialog.ShowDialog();
+                _manager.PendingConsoleRegion = regionDialog.SelectedRegionCode;
             }
 
-            var progressWindow = new ProgressWindow();
-            progressWindow.Owner = this;
-            progressWindow.TotalItems = _manager.ItemList.Count(g => !g.IsMenuItem);
-            progressWindow.IsIndeterminate = true;
-            progressWindow.Show();
+            var spaceCheck = await _manager.CalculateRequiredSpaceAsync(GetTempFolderRoot());
+            if (!spaceCheck.HasSufficientSpace)
+            {
+                var proceed = MessageBox.Show(this,
+                Manager.BuildSpaceWarningMessage(spaceCheck),
+                "Confirmation", MessageBoxButton.YesNo, MessageBoxImage.None);
+                if (proceed != MessageBoxResult.Yes) return;
+            }
+
+
 
             try
             {
-                var progress = new Progress<string>(msg => Dispatcher.Invoke(() =>
+                if (LockCheckBox.IsChecked == true)
                 {
-                    progressWindow.TextContent = msg;
-                }));
+                    bool lockCheckPassed = await RunLockCheck();
+                    if (!lockCheckPassed)
+                        return;
+                }
 
-                var itemProgress = new Progress<int>(count => Dispatcher.Invoke(() =>
+                var progressWindow = new ProgressWindow();
+                progressWindow.Owner = this;
+                progressWindow.TotalItems = _manager.ItemList.Count(g => !g.IsMenuItem);
+                progressWindow.IsIndeterminate = true;
+                progressWindow.Show();
+
+                try
                 {
-                    progressWindow.ProcessedItems = count;
-                }));
+                    var progress = new Progress<string>(msg => Dispatcher.Invoke(() =>
+                    {
+                        progressWindow.TextContent = msg;
+                    }));
 
-                string tempRoot = GetTempFolderRoot();
-                await _manager.SaveAsync(progress, itemProgress, string.IsNullOrEmpty(tempRoot) ? null : tempRoot);
+                    var itemProgress = new Progress<int>(count => Dispatcher.Invoke(() =>
+                    {
+                        progressWindow.ProcessedItems = count;
+                    }));
 
-                SaveSettings();
+                    string tempRoot = GetTempFolderRoot();
+                    await _manager.SaveAsync(progress, itemProgress, string.IsNullOrEmpty(tempRoot) ? null : tempRoot);
 
-                progressWindow.AllowClose();
-                progressWindow.Close();
+                    SaveSettings();
 
-                MessageBox.Show(this, "Done!", "Information", MessageBoxButton.OK, MessageBoxImage.None);
-
-                await LoadCard();
-            }
-            finally
-            {
-                progressWindow.AllowClose();
-                if (progressWindow.IsVisible)
+                    progressWindow.AllowClose();
                     progressWindow.Close();
+
+                    MessageBox.Show(this, "Done!", "Information", MessageBoxButton.OK, MessageBoxImage.None);
+
+                    await LoadCardOwned();
+                }
+                finally
+                {
+                    progressWindow.AllowClose();
+                    if (progressWindow.IsVisible)
+                        progressWindow.Close();
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(this, ex.Message + "\n\n" + _manager.LastSaveOutcome, "Error", MessageBoxButton.OK, MessageBoxImage.None);
             }
         }
         catch (Exception ex)
         {
-            MessageBox.Show(this, ex.Message, "Error", MessageBoxButton.OK, MessageBoxImage.None);
+            MessageBox.Show(this, ex.Message + "\n\n" + _manager.LastSaveOutcome, "Error", MessageBoxButton.OK, MessageBoxImage.None);
         }
-        finally
-        {
-            IsBusy = false;
-        }
+        finally { IsBusy = false; }
     }
 
     private async Task<bool> RunLockCheck()
@@ -919,7 +1028,7 @@ public partial class MainWindow : Window, GongSolutions.Wpf.DragDrop.IDropTarget
 
             var lockProgress = new ProgressWindow();
             lockProgress.Owner = this;
-            lockProgress.TextContent = "Checking for locked files and folders...";
+            lockProgress.TextContent = "Checking file accessibility...";
             lockProgress.TotalItems = paths.Count;
             lockProgress.Show();
 
@@ -987,7 +1096,7 @@ public partial class MainWindow : Window, GongSolutions.Wpf.DragDrop.IDropTarget
         MessageBox.Show(this, sb.ToString(), "Information", MessageBoxButton.OK, MessageBoxImage.None);
     }
 
-    private static string FormatFolderList(List<string> folders)
+    private static string FormatFolderList(IList<string> folders)
     {
         if (folders.Count == 0) return "";
         if (folders.Count == 1) return folders[0];
@@ -1034,6 +1143,7 @@ public partial class MainWindow : Window, GongSolutions.Wpf.DragDrop.IDropTarget
 
     private void MenuItemRename_Click(object sender, RoutedEventArgs e)
     {
+        if (CannotEdit) return;
         if (GameGrid.SelectedItem != null)
             GameGrid.BeginEdit();
     }
@@ -1055,6 +1165,7 @@ public partial class MainWindow : Window, GongSolutions.Wpf.DragDrop.IDropTarget
 
     private void RenameSelectedItems(Func<string, string> transform)
     {
+        if (CannotEdit) return;
         var items = GameGrid.SelectedItems?.Cast<SaturnGame>()
             .Where(g => !g.IsMenuItem)
             .ToList();
@@ -1082,81 +1193,93 @@ public partial class MainWindow : Window, GongSolutions.Wpf.DragDrop.IDropTarget
 
     private async void MenuItemRenameIP_Click(object sender, RoutedEventArgs e)
     {
-        var items = GameGrid.SelectedItems?.Cast<SaturnGame>()
-            .Where(g => !g.IsMenuItem)
-            .ToList();
-        if (items == null || items.Count == 0) return;
-
-        var undoOp = new MultiPropertyEditOperation("Rename by IP.BIN")
-        {
-            PropertyName = nameof(SaturnGame.Name)
-        };
-
-        var progressWindow = new ProgressWindow();
-        progressWindow.Title = "Reading IP.BIN Info";
-        progressWindow.TotalItems = items.Count;
-        progressWindow.TextContent = "Reading IP.BIN info...";
-        progressWindow.Owner = this;
-        progressWindow.Show();
-        GameGrid.IsEnabled = false;
-
+        if (CannotEdit) return;
+        if (!CommitPendingEdit()) return;
+        IsBusy = true;
         try
         {
-            for (int i = 0; i < items.Count; i++)
-            {
-                var game = items[i];
-                var oldName = game.Name;
-                string? newName = null;
+            var items = GameGrid.SelectedItems?.Cast<SaturnGame>()
+            .Where(g => !g.IsMenuItem)
+            .ToList();
+            if (items == null || items.Count == 0) return;
 
-                string? folderPath = !string.IsNullOrEmpty(game.FullFolderPath) ? game.FullFolderPath
+            var undoOp = new MultiPropertyEditOperation("Rename by IP.BIN")
+            {
+                PropertyName = nameof(SaturnGame.Name)
+            };
+
+            var progressWindow = new ProgressWindow();
+            progressWindow.Title = "Reading IP.BIN Info";
+            progressWindow.TotalItems = items.Count;
+            progressWindow.TextContent = "Reading IP.BIN info...";
+            progressWindow.Owner = this;
+            progressWindow.Show();
+
+
+            try
+            {
+                for (int i = 0; i < items.Count; i++)
+                {
+                    var game = items[i];
+                    var oldName = game.Name;
+                    string? newName = null;
+
+                    string? folderPath = !string.IsNullOrEmpty(game.FullFolderPath) ? game.FullFolderPath
                     : !string.IsNullOrEmpty(game.SourcePath) ? game.SourcePath : null;
 
-                if (folderPath != null)
-                {
-                    Dispatcher.Invoke(() => progressWindow.TextContent = $"Reading IP.BIN: {game.Name}");
-                    var result = await Task.Run(() =>
+                    if (folderPath != null)
                     {
-                        var (offset, filePath) = IpBinParser.FindIpBinInFolder(folderPath);
-                        if (offset >= 0 && filePath != null)
-                            return IpBinParser.ParseHeader(filePath, offset)?.Title;
-                        return null;
-                    });
-                    newName = result;
-                }
-
-                if (string.IsNullOrEmpty(newName) && game.ImageFiles.Count > 0)
-                    newName = Path.GetFileNameWithoutExtension(game.ImageFiles[0]);
-
-                if (!string.IsNullOrEmpty(newName))
-                {
-                    game.Name = newName;
-                    if (oldName != game.Name)
-                    {
-                        undoOp.AddChange(game, oldName, game.Name);
-                        game.SidecarsDirty = true;
+                        Dispatcher.Invoke(() => progressWindow.TextContent = $"Reading IP.BIN: {game.Name}");
+                        var result = await Task.Run(() =>
+                        {
+                            var (offset, filePath) = IpBinParser.FindIpBinInFolder(folderPath);
+                            if (offset >= 0 && filePath != null)
+                                return IpBinParser.ParseHeader(filePath, offset)?.Title;
+                            return null;
+                        });
+                        newName = result;
                     }
-                }
 
-                Dispatcher.Invoke(() => progressWindow.ProcessedItems = i + 1);
+                    if (string.IsNullOrEmpty(newName) && game.ImageFiles.Count > 0)
+                        newName = Path.GetFileNameWithoutExtension(game.ImageFiles[0]);
+
+                    if (!string.IsNullOrEmpty(newName))
+                    {
+                        game.Name = newName;
+                        if (oldName != game.Name)
+                        {
+                            undoOp.AddChange(game, oldName, game.Name);
+                            game.SidecarsDirty = true;
+                        }
+                    }
+
+                    Dispatcher.Invoke(() => progressWindow.ProcessedItems = i + 1);
+                }
             }
+            catch (Exception ex)
+            {
+                MessageBox.Show(this, $"Failed to read IP.BIN: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.None);
+            }
+            finally
+            {
+                progressWindow.AllowClose();
+                progressWindow.Close();
+
+            }
+
+            if (undoOp.HasChanges)
+                _manager.UndoManager.RecordChange(undoOp);
         }
         catch (Exception ex)
         {
-            MessageBox.Show(this, $"Failed to read IP.BIN: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.None);
+            MessageBox.Show(this, ex.Message, "Error", MessageBoxButton.OK, MessageBoxImage.None);
         }
-        finally
-        {
-            progressWindow.AllowClose();
-            progressWindow.Close();
-            GameGrid.IsEnabled = true;
-        }
-
-        if (undoOp.HasChanges)
-            _manager.UndoManager.RecordChange(undoOp);
+        finally { IsBusy = false; }
     }
 
     private void MenuItemRenameFolder_Click(object sender, RoutedEventArgs e)
     {
+        if (CannotEdit) return;
         var items = GameGrid.SelectedItems?.Cast<SaturnGame>()
             .Where(g => !g.IsMenuItem && g.IsNotOnSdCard)
             .ToList();
@@ -1190,6 +1313,7 @@ public partial class MainWindow : Window, GongSolutions.Wpf.DragDrop.IDropTarget
 
     private void MenuItemRenameFile_Click(object sender, RoutedEventArgs e)
     {
+        if (CannotEdit) return;
         var items = GameGrid.SelectedItems?.Cast<SaturnGame>()
             .Where(g => !g.IsMenuItem && g.IsNotOnSdCard)
             .ToList();
@@ -1219,6 +1343,7 @@ public partial class MainWindow : Window, GongSolutions.Wpf.DragDrop.IDropTarget
 
     private void ContextMenu_Opened(object sender, RoutedEventArgs e)
     {
+        if (CannotEdit) { if (sender is ContextMenu blockedMenu) blockedMenu.IsOpen = false; return; }
         if (sender is not ContextMenu menu) return;
 
         int count = GameGrid.SelectedItems?.Cast<SaturnGame>()
@@ -1278,79 +1403,101 @@ public partial class MainWindow : Window, GongSolutions.Wpf.DragDrop.IDropTarget
 
     private void MenuItemAssignFolder_Click(object sender, RoutedEventArgs e)
     {
-        GameGrid.CommitEdit(DataGridEditingUnit.Cell, true);
-        GameGrid.CommitEdit(DataGridEditingUnit.Row, true);
+        if (CannotEdit) return;
+        if (!CommitPendingEdit()) return;
+        IsBusy = true;
+        try
+        {
+            GameGrid.CommitEdit(DataGridEditingUnit.Cell, true);
+            GameGrid.CommitEdit(DataGridEditingUnit.Row, true);
 
-        var selectedItems = GameGrid.SelectedItems?.Cast<SaturnGame>()
+            var selectedItems = GameGrid.SelectedItems?.Cast<SaturnGame>()
             .Where(g => !g.IsMenuItem)
             .ToList();
 
-        if (selectedItems == null || selectedItems.Count == 0) return;
-
-        _manager.RefreshKnownFolders();
-        var dialog = new AssignFolderWindow(selectedItems.Count, _manager.KnownFolders);
-        dialog.Owner = this;
-
-        if (dialog.ShowDialog() == true)
-        {
-            var folderPath = dialog.FolderPath?.Trim() ?? string.Empty;
-
-            var undoOp = new MultiPropertyEditOperation("Assign Folder Path")
-            {
-                PropertyName = nameof(SaturnGame.Folder)
-            };
-
-            foreach (var item in selectedItems)
-            {
-                var oldFolder = item.Folder;
-                if (oldFolder != folderPath)
-                {
-                    undoOp.Edits.Add((item, oldFolder, folderPath));
-                    item.Folder = folderPath;
-                    item.SidecarsDirty = true;
-                }
-            }
-
-            if (undoOp.Edits.Count > 0)
-                _manager.UndoManager.RecordChange(undoOp);
+            if (selectedItems == null || selectedItems.Count == 0) return;
 
             _manager.RefreshKnownFolders();
-        }
-    }
+            var dialog = new AssignFolderWindow(selectedItems.Count, _manager.KnownFolders);
+            dialog.Owner = this;
 
-    private void MenuItemAssignAltFolders_Click(object sender, RoutedEventArgs e)
-    {
-        GameGrid.CommitEdit(DataGridEditingUnit.Cell, true);
-        GameGrid.CommitEdit(DataGridEditingUnit.Row, true);
-
-        var item = GameGrid.SelectedItems?.Cast<SaturnGame>()
-            .FirstOrDefault(g => !g.IsMenuItem);
-
-        if (item == null) return;
-
-        _manager.RefreshKnownFolders();
-        var dialog = new AssignAltFoldersWindow(item, _manager.KnownFolders);
-        dialog.Owner = this;
-
-        if (dialog.ShowDialog() == true)
-        {
-            var oldAltFolders = new List<string>(item.AlternativeFolders);
-            var newAltFolders = dialog.GetAltFolders();
-
-            if (!oldAltFolders.SequenceEqual(newAltFolders))
+            if (dialog.ShowDialog() == true)
             {
-                item.AlternativeFolders = newAltFolders;
-                item.SidecarsDirty = true;
-                _manager.UndoManager.RecordChange(new AltFoldersChangeOperation
+                var folderPath = dialog.FolderPath?.Trim() ?? string.Empty;
+
+                var undoOp = new MultiPropertyEditOperation("Assign Folder Path")
                 {
-                    Item = item,
-                    OldAltFolders = oldAltFolders,
-                    NewAltFolders = new List<string>(item.AlternativeFolders)
-                });
+                    PropertyName = nameof(SaturnGame.Folder)
+                };
+
+                foreach (var item in selectedItems)
+                {
+                    var oldFolder = item.Folder;
+                    if (oldFolder != folderPath)
+                    {
+                        undoOp.Edits.Add((item, oldFolder, folderPath));
+                        item.Folder = folderPath;
+                        item.SidecarsDirty = true;
+                    }
+                }
+
+                if (undoOp.Edits.Count > 0)
+                    _manager.UndoManager.RecordChange(undoOp);
 
                 _manager.RefreshKnownFolders();
             }
         }
+        catch (Exception ex)
+        {
+            MessageBox.Show(this, ex.Message, "Error", MessageBoxButton.OK, MessageBoxImage.None);
+        }
+        finally { IsBusy = false; }
+    }
+
+    private void MenuItemAssignAltFolders_Click(object sender, RoutedEventArgs e)
+    {
+        if (CannotEdit) return;
+        if (!CommitPendingEdit()) return;
+        IsBusy = true;
+        try
+        {
+            GameGrid.CommitEdit(DataGridEditingUnit.Cell, true);
+            GameGrid.CommitEdit(DataGridEditingUnit.Row, true);
+
+            var item = GameGrid.SelectedItems?.Cast<SaturnGame>()
+            .FirstOrDefault(g => !g.IsMenuItem);
+
+            if (item == null) return;
+
+            _manager.RefreshKnownFolders();
+            var dialog = new AssignAltFoldersWindow(item, _manager.KnownFolders);
+            dialog.Owner = this;
+
+            if (dialog.ShowDialog() == true)
+            {
+                var oldAltFolders = new List<string>(item.AlternativeFolders);
+                var newAltFolders = dialog.GetAltFolders();
+
+                if (!oldAltFolders.SequenceEqual(newAltFolders))
+                {
+                    item.AlternativeFolders = newAltFolders;
+                    item.SidecarsDirty = true;
+                    _manager.UndoManager.RecordChange(new AltFoldersChangeOperation
+                    {
+                        Item = item,
+                        OldAltFolders = oldAltFolders,
+                        NewAltFolders = new List<string>(item.AlternativeFolders)
+                    });
+
+                    _manager.RefreshKnownFolders();
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(this, ex.Message, "Error", MessageBoxButton.OK, MessageBoxImage.None);
+        }
+        finally { IsBusy = false; }
     }
 
     // --- Drag and drop (Window-level kept for drop outside DataGrid) ---
@@ -1366,7 +1513,7 @@ public partial class MainWindow : Window, GongSolutions.Wpf.DragDrop.IDropTarget
 
     private async void Window_Drop(object sender, DragEventArgs e)
     {
-        if (IsBusy || IsFilterActive || !HasSdPath) return;
+        if (CannotEdit || IsFilterActive) return;
 
         if (e.Data.GetDataPresent(DataFormats.FileDrop))
         {
@@ -1384,7 +1531,7 @@ public partial class MainWindow : Window, GongSolutions.Wpf.DragDrop.IDropTarget
         if (_isCellEditing || e.OriginalSource is System.Windows.Controls.Primitives.TextBoxBase)
             return;
 
-        if (e.Key == Key.Z && Keyboard.Modifiers == ModifierKeys.Control)
+        if (!CannotEdit && e.Key == Key.Z && Keyboard.Modifiers == ModifierKeys.Control)
         {
             if (_manager.UndoManager.CanUndo)
             {
@@ -1392,7 +1539,7 @@ public partial class MainWindow : Window, GongSolutions.Wpf.DragDrop.IDropTarget
                 e.Handled = true;
             }
         }
-        else if (e.Key == Key.Y && Keyboard.Modifiers == ModifierKeys.Control)
+        else if (!CannotEdit && e.Key == Key.Y && Keyboard.Modifiers == ModifierKeys.Control)
         {
             if (_manager.UndoManager.CanRedo)
             {
@@ -1412,11 +1559,25 @@ public partial class MainWindow : Window, GongSolutions.Wpf.DragDrop.IDropTarget
 
     // --- Cell editing ---
 
+    private bool CommitPendingEdit()
+    {
+        void Update(System.Windows.DependencyObject control)
+        {
+            if (control is System.Windows.Controls.TextBox text) text.GetBindingExpression(System.Windows.Controls.TextBox.TextProperty)?.UpdateSource();
+            if (control is System.Windows.Controls.ComboBox combo) combo.GetBindingExpression(System.Windows.Controls.ComboBox.TextProperty)?.UpdateSource();
+            for (int i = 0; i < System.Windows.Media.VisualTreeHelper.GetChildrenCount(control); i++)
+                Update(System.Windows.Media.VisualTreeHelper.GetChild(control, i));
+        }
+        Update(GameGrid);
+        return GameGrid.CommitEdit(DataGridEditingUnit.Cell, true) && GameGrid.CommitEdit(DataGridEditingUnit.Row, true);
+    }
+
     private string? _editOldValue;
     private bool _isCellEditing;
 
     private void GameGrid_BeginningEdit(object? sender, DataGridBeginningEditEventArgs e)
     {
+        if (CannotEdit) { e.Cancel = true; return; }
         if (e.Row.DataContext is SaturnGame game && game.IsMenuItem)
         {
             e.Cancel = true;
@@ -1451,6 +1612,7 @@ public partial class MainWindow : Window, GongSolutions.Wpf.DragDrop.IDropTarget
 
     private void GameGrid_CellEditEnding(object? sender, DataGridCellEditEndingEventArgs e)
     {
+        if (CannotEdit) { _editOldValue = null; return; }
         // Editing ended, whatever the outcome.
         _isCellEditing = false;
 
@@ -1503,6 +1665,13 @@ public partial class MainWindow : Window, GongSolutions.Wpf.DragDrop.IDropTarget
 
         if (propertyName != null && newValue != null && _editOldValue != newValue)
         {
+            switch (propertyName)
+            {
+                case nameof(SaturnGame.Name): game.Name = newValue; newValue = game.Name; break;
+                case nameof(SaturnGame.Folder): game.Folder = newValue; newValue = game.Folder; break;
+                case nameof(SaturnGame.ProductId): game.ProductId = newValue; newValue = game.ProductId; break;
+                case nameof(SaturnGame.Disc): game.Disc = newValue; newValue = game.Disc; break;
+            }
             _manager.UndoManager.RecordChange(new PropertyEditOperation
             {
                 Item = game,
@@ -1558,11 +1727,13 @@ public partial class MainWindow : Window, GongSolutions.Wpf.DragDrop.IDropTarget
 
     private void ButtonUndo_Click(object sender, RoutedEventArgs e)
     {
+        if (CannotEdit) return;
         _manager.UndoManager.Undo();
     }
 
     private void ButtonRedo_Click(object sender, RoutedEventArgs e)
     {
+        if (CannotEdit) return;
         _manager.UndoManager.Redo();
     }
 
@@ -1570,7 +1741,9 @@ public partial class MainWindow : Window, GongSolutions.Wpf.DragDrop.IDropTarget
 
     void GongSolutions.Wpf.DragDrop.IDropTarget.DragOver(GongSolutions.Wpf.DragDrop.IDropInfo dropInfo)
     {
-        if (dropInfo == null || IsFilterActive) return;
+        if (dropInfo?.DragInfo != null && !ReferenceEquals(_rowDragInfo, dropInfo.DragInfo))
+        { _rowDragInfo = dropInfo.DragInfo; _rowDragVersion = _operationVersion; }
+        if (dropInfo == null || CannotEdit || IsFilterActive) return;
 
         if (dropInfo.DragInfo == null)
         {
@@ -1603,7 +1776,9 @@ public partial class MainWindow : Window, GongSolutions.Wpf.DragDrop.IDropTarget
 
     async void GongSolutions.Wpf.DragDrop.IDropTarget.Drop(GongSolutions.Wpf.DragDrop.IDropInfo dropInfo)
     {
-        if (dropInfo == null || IsFilterActive) return;
+        if (dropInfo?.DragInfo != null && (!ReferenceEquals(_rowDragInfo, dropInfo.DragInfo) || _rowDragVersion != _operationVersion))
+        { dropInfo.Effects = System.Windows.DragDropEffects.None; return; }
+        if (dropInfo == null || CannotEdit || IsFilterActive) return;
 
         if (dropInfo.DragInfo == null)
         {

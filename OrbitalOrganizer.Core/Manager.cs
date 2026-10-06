@@ -1,4 +1,4 @@
-﻿using System.Collections.ObjectModel;
+using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using System.Text;
@@ -12,7 +12,7 @@ namespace OrbitalOrganizer.Core;
 /// Central orchestrator for all SD card operations.
 /// Manages the game list, scanning, sorting, saving, and menu rebuilding.
 /// </summary>
-public class Manager : INotifyPropertyChanged
+public partial class Manager : INotifyPropertyChanged
 {
     public event PropertyChangedEventHandler? PropertyChanged;
 
@@ -21,21 +21,16 @@ public class Manager : INotifyPropertyChanged
     private MenuKind _menuKindSelected = MenuKind.RmenuKai;
     private bool _useVirtualFolderSubfolders = true;
     private GameDatabase? _gameDb;
-    private bool _reorderPending;
-
-    // Passes allowed when rebuilding the card root in order. One is normally
-    // enough. A second is needed when the free slot search wraps.
-    private const int MaxOrderPasses = 3;
 
     /// <summary>
     /// The list of all games currently loaded. Does not include the menu item (folder 01).
     /// </summary>
-    public ObservableCollection<SaturnGame> ItemList { get; } = new();
+    public ObservableCollection<SaturnGame> ItemList { get; }
 
     /// <summary>
     /// Manages undo/redo operations.
     /// </summary>
-    public UndoManager UndoManager { get; } = new();
+    public UndoManager UndoManager { get; }
 
     /// <summary>
     /// Known virtual folder paths extracted from current items (for autocomplete).
@@ -48,7 +43,16 @@ public class Manager : INotifyPropertyChanged
     public string SdCardPath
     {
         get => _sdCardPath;
-        set { _sdCardPath = value; OnPropertyChanged(); }
+        set
+        {
+            if (IsOperationActive) throw new InvalidOperationException("Another card operation is already active.");
+            if (_sdCardPath == value) return;
+            _sdCardPath = value;
+            _needsRecovery = false;
+            Mutate(() => { ItemList.Clear(); _removedItems.Clear(); UndoManager.Clear(); });
+            OnPropertyChanged();
+            NotifyOperationState();
+        }
     }
 
     /// <summary>
@@ -57,7 +61,7 @@ public class Manager : INotifyPropertyChanged
     public MenuKind MenuKindDetected
     {
         get => _menuKindDetected;
-        set { _menuKindDetected = value; OnPropertyChanged(); }
+        set { EnsureCanMutate(); _menuKindDetected = value; OnPropertyChanged(); }
     }
 
     /// <summary>
@@ -66,7 +70,7 @@ public class Manager : INotifyPropertyChanged
     public MenuKind MenuKindSelected
     {
         get => _menuKindSelected;
-        set { _menuKindSelected = value; OnPropertyChanged(); }
+        set { EnsureCanMutate(); _menuKindSelected = value; OnPropertyChanged(); }
     }
 
     /// <summary>
@@ -75,7 +79,7 @@ public class Manager : INotifyPropertyChanged
     public bool UseVirtualFolderSubfolders
     {
         get => _useVirtualFolderSubfolders;
-        set { _useVirtualFolderSubfolders = value; OnPropertyChanged(); }
+        set { EnsureCanMutate(); _useVirtualFolderSubfolders = value; OnPropertyChanged(); }
     }
 
     /// <summary>
@@ -87,12 +91,14 @@ public class Manager : INotifyPropertyChanged
     /// <summary>
     /// Path to the application's tools/ directory.
     /// </summary>
-    public string ToolsPath { get; set; } = string.Empty;
+    private string _toolsPath = string.Empty;
+    public string ToolsPath { get => _toolsPath; set { if (IsOperationActive) throw new InvalidOperationException("Another card operation is already active."); _toolsPath = value; } }
 
     /// <summary>
     /// Whether to run lock checks before save operations.
     /// </summary>
-    public bool EnableLockCheck { get; set; } = true;
+    private bool _enableLockCheck = true;
+    public bool EnableLockCheck { get => _enableLockCheck; set { EnsureCanMutate(); _enableLockCheck = value; } }
 
     /// <summary>
     /// Callback for when a folder move fails due to a file lock. The UI sets this
@@ -111,7 +117,8 @@ public class Manager : INotifyPropertyChanged
     /// Region code to write into newly created INI files (e.g., "J", "U", "E").
     /// Set by the UI before SaveAsync when NeedsIniFiles() returns true.
     /// </summary>
-    public string? PendingConsoleRegion { get; set; }
+    private string? _pendingConsoleRegion = null;
+    public string? PendingConsoleRegion { get => _pendingConsoleRegion; set { EnsureCanMutate(); _pendingConsoleRegion = value; } }
 
     /// <summary>
     /// Callback for choosing when archive metadata should be read. The UI
@@ -129,29 +136,29 @@ public class Manager : INotifyPropertyChanged
     /// <summary>
     /// Scans the SD card and populates ItemList.
     /// </summary>
-    public async Task LoadItemsFromCardAsync()
+    public Task LoadItemsFromCardAsync() => RunOperationAsync(() => LoadItemsFromCardCoreAsync());
+
+    private async Task LoadItemsFromCardCoreAsync()
     {
         if (string.IsNullOrEmpty(SdCardPath) || !Directory.Exists(SdCardPath))
             throw new InvalidOperationException("Invalid SD card path.");
 
-        ItemList.Clear();
+        await RecoverCardCoreAsync();
+        if (OpenSave() == null) _removedItems.Clear();
+        Mutate(() => ItemList.Clear());
         KnownFolders.Clear();
-        UndoManager.Clear();
+        Mutate(() => UndoManager.Clear());
         _gameDb = null;
-        _reorderPending = false;
-
-        // A save interrupted partway through leaves game folders in the staging
-        // folder. Put them back before scanning, or the card looks half empty.
-        await Task.Run(() => CardOrder.RecoverStaged(SdCardPath));
 
         // Detect menu type (runs on thread pool to avoid blocking the UI)
-        MenuKindDetected = await Task.Run(() => MenuDetector.Detect(SdCardPath));
+        var detected = await Task.Run(() => MenuDetector.Detect(SdCardPath));
+        Mutate(() => MenuKindDetected = detected);
         if (MenuKindDetected != MenuKind.None)
-            MenuKindSelected = MenuKindDetected;
+            Mutate(() => MenuKindSelected = MenuKindDetected);
 
         // If RmenuKai is detected, default virtual folder subfolders to on
         if (MenuKindDetected == MenuKind.RmenuKai || MenuKindDetected == MenuKind.Both)
-            UseVirtualFolderSubfolders = true;
+            Mutate(() => UseVirtualFolderSubfolders = true);
 
         // Insert a synthetic menu entry for folder 01
         string menuName = (MenuKindSelected == MenuKind.RmenuKai || MenuKindSelected == MenuKind.Both)
@@ -165,7 +172,7 @@ public class Manager : INotifyPropertyChanged
             WorkMode = WorkMode.None,
             Length = -1
         };
-        ItemList.Add(menuItem);
+        Mutate(() => ItemList.Add(menuItem));
 
         // The scan resolves entries against this local snapshot so a
         // reentrant load cannot swap the field mid-loop.
@@ -197,15 +204,15 @@ public class Manager : INotifyPropertyChanged
                 game.IsLegacyRmenu = true;
             }
 
-            ItemList.Add(game);
+            Mutate(() => ItemList.Add(game));
         }, name => dbSnapshot?.Items.GetValueOrDefault(name));
 
         // If the card has RmenuKai in folder 01 and a legacy RMENU was
         // found during the scan above, upgrade the detected type to Both.
         if (MenuKindDetected == MenuKind.RmenuKai && ItemList.Any(g => g.IsLegacyRmenu))
         {
-            MenuKindDetected = MenuKind.Both;
-            MenuKindSelected = MenuKind.Both;
+            Mutate(() => MenuKindDetected = MenuKind.Both);
+            Mutate(() => MenuKindSelected = MenuKind.Both);
         }
 
         // A card with no game folders and no database starts in database
@@ -221,7 +228,7 @@ public class Manager : INotifyPropertyChanged
         {
             try
             {
-                await PerformGameDbMigrationAsync();
+                await PerformGameDbMigrationCoreAsync();
             }
             catch
             {
@@ -229,6 +236,7 @@ public class Manager : INotifyPropertyChanged
             }
         }
 
+        Mutate(() => ReconcilePreparing(OpenSave(), true));
         // Build known folders list
         RefreshKnownFolders();
     }
@@ -239,6 +247,7 @@ public class Manager : INotifyPropertyChanged
     /// </summary>
     public void SortList()
     {
+        EnsureCanMutate();
         var oldOrder = ItemList.ToList();
 
         var menuEntry = ItemList.FirstOrDefault(g => g.IsMenuItem);
@@ -250,11 +259,11 @@ public class Manager : INotifyPropertyChanged
             .ThenBy(g => g.Disc)
             .ToList();
 
-        ItemList.Clear();
+        Mutate(() => ItemList.Clear());
         if (menuEntry != null)
-            ItemList.Add(menuEntry);
+            Mutate(() => ItemList.Add(menuEntry));
         foreach (var game in sorted)
-            ItemList.Add(game);
+            Mutate(() => ItemList.Add(game));
 
         UndoManager.RecordChange(new ListReorderOperation("Sort List")
         {
@@ -265,126 +274,12 @@ public class Manager : INotifyPropertyChanged
     }
 
     /// <summary>
-    /// Saves all changes to the SD card: renumber folders, rebuild menu, copy new items.
-    /// </summary>
-    public async Task SaveAsync(IProgress<string>? progress = null, IProgress<int>? itemProgress = null, string? tempFolderRoot = null)
-    {
-        if (string.IsNullOrEmpty(SdCardPath))
-            throw new InvalidOperationException("No SD card path set.");
-
-        string tempRoot = !string.IsNullOrEmpty(tempFolderRoot) && Directory.Exists(tempFolderRoot)
-            ? tempFolderRoot
-            : Path.GetTempPath();
-        string tempDir = Path.Combine(tempRoot, "OrbitalOrganizer_" + Guid.NewGuid().ToString("N")[..8]);
-        Directory.CreateDirectory(tempDir);
-
-        try
-        {
-            // Write default INI files if they don't exist
-            EnsureIniFiles();
-
-            // Renumber and move game folders
-            await RenumberFoldersAsync(progress);
-
-            // Copy new items to the SD card (with CUE/BIN conversion if
-            // applicable) before LIST.INI is generated, so deferred archive
-            // rows resolve their metadata in time to appear in the menu.
-            // A copy failure is rethrown only after the menu is rebuilt,
-            // because the folders were already renumbered above and a stale
-            // menu would map every slot to the wrong folder.
-            System.Runtime.ExceptionServices.ExceptionDispatchInfo? copyFailure = null;
-            int processed = 0;
-            try
-            {
-                await CopyNewItemsAsync(progress, itemProgress, processed, tempRoot);
-            }
-            catch (Exception ex)
-            {
-                copyFailure = System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(ex);
-            }
-
-            // Runs even when a copy failed, so that nothing is left behind in the
-            // staging folder and the card root is complete either way.
-            await PlaceFoldersInOrderAsync(progress);
-
-            // Build and write LIST.INI
-            var gamesList = ItemList.Where(g => !g.IsMenuItem && (!g.IsLegacyRmenu || MenuKindSelected == MenuKind.Both)).ToList();
-            string listIni = MenuBuilder.GenerateListIni(gamesList, UseVirtualFolderSubfolders, MenuKindSelected);
-
-            // Build RMENU.iso for folder 01 (always the primary menu)
-            bool primaryIsKai = MenuKindSelected == MenuKind.RmenuKai || MenuKindSelected == MenuKind.Both;
-            await BuildMenuIsoAsync(Constants.MenuFolderName, listIni, tempDir, primaryIsKai, progress);
-
-            // If "Both" mode, also rebuild the legacy RMENU instance with
-            // a separate LIST.INI that has no folder paths (RMENU doesn't support them)
-            if (MenuKindSelected == MenuKind.Both)
-            {
-                var legacyItem = ItemList.FirstOrDefault(g => g.IsLegacyRmenu);
-                if (legacyItem != null)
-                {
-                    string legacyListIni = MenuBuilder.GenerateListIni(gamesList, UseVirtualFolderSubfolders, MenuKind.Rmenu);
-                    string legacyFolder = legacyItem.FolderNumberFormatted;
-                    await BuildMenuIsoAsync(legacyFolder, legacyListIni, tempDir, useRmenuKai: false, progress);
-
-                    legacyItem.FullFolderPath = Path.Combine(SdCardPath, legacyFolder);
-                    legacyItem.WorkMode = WorkMode.None;
-                }
-            }
-
-            copyFailure?.Throw();
-
-            // Patch product IDs where changed
-            await PatchProductIdsAsync(progress);
-
-            // Write sidecar files for items with changes
-            if (ItemList.Any(g => g.SidecarsDirty && !g.IsMenuItem))
-            {
-                progress?.Report("Writing metadata files...");
-                await Task.Run(() => WriteSidecarFiles(progress));
-            }
-
-            // Rebuild the database wholesale. The dirty gate cannot apply
-            // here because renumbering changes keys for unedited items too.
-            if (_gameDb != null)
-            {
-                _gameDb.Items.Clear();
-                foreach (var game in ItemList)
-                {
-                    if (game.IsMenuItem || game.SdNumber <= 0)
-                        continue;
-                    if (string.IsNullOrEmpty(game.FullFolderPath))
-                        continue;
-
-                    var entry = CreateDbEntry(game);
-                    if (entry.IsUsable)
-                        _gameDb.Items[Path.GetFileName(game.FullFolderPath)] = entry;
-                }
-
-                progress?.Report("Writing game database...");
-                await _gameDb.SaveAsync(SdCardPath);
-            }
-
-            // Generate GameList.txt
-            string gameListContent = MenuBuilder.GenerateGameList(gamesList, MenuKindSelected);
-            File.WriteAllText(Path.Combine(SdCardPath, "GameList.txt"), gameListContent, System.Text.Encoding.UTF8);
-
-            progress?.Report("Done!");
-        }
-        finally
-        {
-            try { Directory.Delete(tempDir, recursive: true); } catch { }
-            if (_gameDb != null)
-            {
-                try { File.Delete(GameDatabase.GetPath(SdCardPath) + ".tmp"); } catch { }
-            }
-        }
-    }
-
-    /// <summary>
     /// Adds game(s) from file paths (disc images or folders containing them).
     /// New items are staged with SdNumber = 0 and WorkMode = New.
     /// </summary>
-    public async Task<List<SaturnGame>> AddGamesAsync(string[] paths, IProgress<string>? progress = null, int insertIndex = -1)
+    public Task<List<SaturnGame>> AddGamesAsync(string[] paths, IProgress<string>? progress = null, int insertIndex = -1) => RunOperationAsync(() => AddGamesCoreAsync(paths, progress, insertIndex));
+
+    private async Task<List<SaturnGame>> AddGamesCoreAsync(string[] paths, IProgress<string>? progress = null, int insertIndex = -1)
     {
         var added = new List<SaturnGame>();
 
@@ -429,12 +324,12 @@ public class Manager : INotifyPropertyChanged
 
                 if (insertIndex >= 0 && insertIndex <= ItemList.Count)
                 {
-                    ItemList.Insert(insertIndex, game);
+                    Mutate(() => ItemList.Insert(insertIndex, game));
                     insertIndex++;
                 }
                 else
                 {
-                    ItemList.Add(game);
+                    Mutate(() => ItemList.Add(game));
                 }
 
                 added.Add(game);
@@ -445,10 +340,10 @@ public class Manager : INotifyPropertyChanged
 
         if (added.Count > 0)
         {
-            var undoOp = new MultiItemAddOperation { ItemList = ItemList };
+            var undoOp = new MultiItemAddOperation { ItemList = ItemList, OnItemRemoved = MarkRemoved, OnItemRestored = Reinstate };
             foreach (var game in added)
                 undoOp.Items.Add((game, ItemList.IndexOf(game)));
-            UndoManager.RecordChange(undoOp);
+            Mutate(() => UndoManager.RecordChange(undoOp));
         }
 
         if (OnArchiveWarning != null)
@@ -466,15 +361,19 @@ public class Manager : INotifyPropertyChanged
     /// </summary>
     public void RemoveItems(IEnumerable<SaturnGame> items)
     {
+        EnsureCanMutate();
         var toRemove = items.Where(i => !i.IsMenuItem).ToList();
         if (toRemove.Count == 0) return;
 
-        var undoOp = new MultiItemRemoveOperation { ItemList = ItemList };
+        var undoOp = new MultiItemRemoveOperation { ItemList = ItemList, OnItemRemoved = MarkRemoved, OnItemRestored = Reinstate };
         foreach (var item in toRemove)
             undoOp.Items.Add((item, ItemList.IndexOf(item)));
 
         foreach (var item in toRemove)
+        {
             ItemList.Remove(item);
+            MarkRemoved(item);
+        }
 
         UndoManager.RecordChange(undoOp);
     }
@@ -510,9 +409,10 @@ public class Manager : INotifyPropertyChanged
     /// True when the card is old-format: no GameDB.json and at least one
     /// numbered game folder. Folder 01 alone does not count.
     /// </summary>
-    public Task<bool> CheckGameDbMigrationNeededAsync()
+    public Task<bool> CheckGameDbMigrationNeededAsync() => RunOperationAsync(async () =>
     {
-        return Task.Run(() =>
+        await RecoverCardCoreAsync();
+        return await Task.Run(() =>
         {
             if (string.IsNullOrEmpty(SdCardPath) || !Directory.Exists(SdCardPath))
                 return false;
@@ -526,15 +426,18 @@ public class Manager : INotifyPropertyChanged
                 return int.TryParse(name, out int n) && n > Constants.MenuFolderNumber;
             });
         });
-    }
+    });
 
     /// <summary>
     /// One-time migration to GameDB.json, built from the loaded item list.
     /// Nothing is deleted from the card. Sidecar text files remain as
     /// write-only compatibility output.
     /// </summary>
-    public async Task PerformGameDbMigrationAsync()
+    public Task PerformGameDbMigrationAsync() => RunOperationAsync(() => PerformGameDbMigrationCoreAsync());
+
+    private async Task PerformGameDbMigrationCoreAsync()
     {
+        await RecoverCardCoreAsync();
         if (string.IsNullOrEmpty(SdCardPath) || !Directory.Exists(SdCardPath))
             throw new InvalidOperationException(
                 $"The SD card is no longer accessible at \"{SdCardPath}\". Reconnect it and try again.");
@@ -596,8 +499,15 @@ public class Manager : INotifyPropertyChanged
     /// etc.) and falls back to IP.BIN for anything LIST.INI couldn't provide.
     /// On non-OO cards, goes straight to IP.BIN.
     /// </summary>
-    public async Task PerformMetadataScanAsync(List<SaturnGame> items, IProgress<(int current, string name)>? progress = null)
+    public Task PerformMetadataScanAsync(List<SaturnGame> items, IProgress<(int current, string name)>? progress = null) => RunOperationAsync(() => PerformMetadataScanCoreAsync(items, progress));
+
+    private async Task PerformMetadataScanCoreAsync(List<SaturnGame> items, IProgress<(int current, string name)>? progress = null)
     {
+        await RecoverCardCoreAsync();
+        var preparation = OpenSave();
+        items = items.Where(g => g.SdNumber > 1 && g.WorkMode != WorkMode.New &&
+            string.Equals(Path.GetFullPath(g.FullFolderPath), Path.Combine(Path.GetFullPath(SdCardPath), g.FolderNumberFormatted), StringComparison.OrdinalIgnoreCase) &&
+            Directory.Exists(g.FullFolderPath)).ToList();
         // On OO cards, parse LIST.INI once upfront so individual items
         // can recover values before falling back to IP.BIN
         Dictionary<string, MigrationService.ListIniEntry>? listIniEntries = null;
@@ -622,7 +532,7 @@ public class Manager : INotifyPropertyChanged
                 listIniEntries.TryGetValue(folderKey, out listIniEntry);
             }
 
-            await Task.Run(() => CardScanner.ScanAndCacheMetadata(item, listIniEntry));
+            await Task.Run(() => Mutate(() => CardScanner.ScanAndCacheMetadata(item, listIniEntry, writeSidecars: preparation == null)));
 
             if (_gameDb != null && !item.IsMenuItem && item.SdNumber > 0)
             {
@@ -635,6 +545,12 @@ public class Manager : INotifyPropertyChanged
             }
         }
 
+        if (preparation != null)
+        {
+            var rows = preparation.Items.ToDictionary(x => x.Id, x => x.Row ?? throw new InvalidDataException("Prepared row is missing: " + x.Id));
+            foreach (var item in items) rows[item.SaveId] = CardSaveRow.Capture(item);
+            preparation.SetRows(rows);
+        }
         if (_gameDb != null)
             await _gameDb.SaveAsync(SdCardPath);
     }
@@ -645,7 +561,7 @@ public class Manager : INotifyPropertyChanged
     public string? FindListIniPath()
     {
         if (string.IsNullOrEmpty(SdCardPath)) return null;
-        string path = Path.Combine(SdCardPath, "01", "BIN", "RMENU", "LIST.INI");
+        string path = PathCasing.ResolveActualPath(Path.Combine(SdCardPath, "01", "BIN", "RMENU", "LIST.INI"));
         return File.Exists(path) ? path : null;
     }
 
@@ -656,8 +572,12 @@ public class Manager : INotifyPropertyChanged
     ///   NonOO:            Name.txt + Folder.txt only (everything else from IP.BIN scan)
     ///   PerlOO / CSharpOO: all LIST.INI fields (recovery for deleted sidecars)
     /// </summary>
-    public async Task<int> PrePopulateFromListIniAsync(IProgress<string>? progress = null)
+    public Task<int> PrePopulateFromListIniAsync(IProgress<string>? progress = null) => RunOperationAsync(() => PrePopulateFromListIniCoreAsync(progress));
+
+    private async Task<int> PrePopulateFromListIniCoreAsync(IProgress<string>? progress = null)
     {
+        await RecoverCardCoreAsync();
+        if (OpenSave() != null) return 0;
         string? listIniPath = FindListIniPath();
         if (listIniPath == null) return 0;
 
@@ -690,6 +610,7 @@ public class Manager : INotifyPropertyChanged
     /// </summary>
     public void InjectLegacyRmenu()
     {
+        EnsureCanMutate();
         if (ItemList.Any(g => g.IsLegacyRmenu))
             return;
 
@@ -709,7 +630,7 @@ public class Manager : INotifyPropertyChanged
 
         // Insert after the menu entry (folder 01)
         int insertIndex = ItemList.Any(g => g.IsMenuItem) ? 1 : 0;
-        ItemList.Insert(insertIndex, rmenu);
+        Mutate(() => ItemList.Insert(insertIndex, rmenu));
     }
 
     /// <summary>
@@ -717,9 +638,13 @@ public class Manager : INotifyPropertyChanged
     /// </summary>
     public void RemoveLegacyRmenu()
     {
+        EnsureCanMutate();
         var legacyItems = ItemList.Where(g => g.IsLegacyRmenu).ToList();
         foreach (var item in legacyItems)
+        {
             ItemList.Remove(item);
+            MarkRemoved(item);
+        }
     }
 
     /// <summary>
@@ -778,412 +703,10 @@ public class Manager : INotifyPropertyChanged
         if (string.IsNullOrEmpty(SdCardPath))
             return false;
 
-        return !File.Exists(Path.Combine(SdCardPath, "Rhea.ini")) ||
-               !File.Exists(Path.Combine(SdCardPath, "Phoebe.ini"));
+        return !PathCasing.FileExistsIgnoreCase(Path.Combine(SdCardPath, "Rhea.ini")) ||
+               !PathCasing.FileExistsIgnoreCase(Path.Combine(SdCardPath, "Phoebe.ini"));
     }
 
-    private void EnsureIniFiles()
-    {
-        string rheaIni = Path.Combine(SdCardPath, "Rhea.ini");
-        string phoebeIni = Path.Combine(SdCardPath, "Phoebe.ini");
-
-        if (!File.Exists(rheaIni))
-        {
-            string defaultRhea = Path.Combine(ToolsPath, "defaults", "Rhea.ini");
-            if (File.Exists(defaultRhea))
-                CopyIniWithRegion(defaultRhea, rheaIni);
-        }
-
-        if (!File.Exists(phoebeIni))
-        {
-            string defaultPhoebe = Path.Combine(ToolsPath, "defaults", "Phoebe.ini");
-            if (File.Exists(defaultPhoebe))
-                CopyIniWithRegion(defaultPhoebe, phoebeIni);
-        }
-    }
-
-    private void CopyIniWithRegion(string source, string destination)
-    {
-        var lines = File.ReadAllLines(source);
-
-        if (!string.IsNullOrEmpty(PendingConsoleRegion))
-        {
-            for (int i = 0; i < lines.Length; i++)
-            {
-                if (lines[i].TrimStart().StartsWith("auto_region"))
-                    lines[i] = $"auto_region = {PendingConsoleRegion}";
-            }
-        }
-
-        File.WriteAllLines(destination, lines);
-    }
-
-    private async Task RenumberFoldersAsync(IProgress<string>? progress)
-    {
-        // Calculate desired folder numbers (starting at 02)
-        int folderNum = 1;
-        bool anyRenumbered = false;
-
-        foreach (var game in ItemList)
-        {
-            if (game.IsMenuItem) continue;
-            folderNum++;
-
-            if (game.WorkMode != WorkMode.New && game.SdNumber != folderNum)
-            {
-                game.WorkMode = WorkMode.Move;
-                anyRenumbered = true;
-            }
-
-            game.SdNumber = folderNum;
-        }
-
-        // Delete orphaned numbered folders not in the item list.
-        // This must happen BEFORE the staging phase below, because
-        // knownFolders is built from items' current FullFolderPath values
-        // (which still point to their original numbered folders at this point).
-        var knownFolders = new HashSet<string>(
-            ItemList.Where(g => !g.IsMenuItem && g.WorkMode != WorkMode.New)
-                    .Select(g => Path.GetFileName(g.FullFolderPath)),
-            StringComparer.OrdinalIgnoreCase);
-
-        foreach (var dir in Directory.GetDirectories(SdCardPath))
-        {
-            string folderName = Path.GetFileName(dir);
-            if (!int.TryParse(folderName, out int num)) continue;
-            if (num == Constants.MenuFolderNumber) continue;
-
-            if (!knownFolders.Contains(folderName))
-            {
-                progress?.Report($"Deleting orphaned folder {folderName}...");
-                Directory.Delete(dir, recursive: true);
-            }
-        }
-
-        // The stored order of the root only changes when folders are created or
-        // renamed. Checking the card as well means a drifted card is repaired on
-        // the next save even when the list itself did not change.
-        bool anyNew = ItemList.Any(g => g.WorkMode == WorkMode.New);
-        _reorderPending = anyRenumbered || anyNew || !CardOrder.IsCardOrdered(SdCardPath);
-
-        if (!_reorderPending)
-            return;
-
-        await StageAllFoldersAsync(progress);
-    }
-
-    /// <summary>
-    /// Moves every folder already on the card into the staging folder, named for
-    /// the number it will end up with. Final numbers are unique across the list,
-    /// so staged names can never collide.
-    /// </summary>
-    private async Task StageAllFoldersAsync(IProgress<string>? progress)
-    {
-        string staging = CardOrder.StagingPath(SdCardPath);
-        Directory.CreateDirectory(staging);
-
-        progress?.Report("Staging folders to reorder the card...");
-
-        foreach (var game in ItemList)
-        {
-            if (game.WorkMode == WorkMode.New) continue;
-            if (string.IsNullOrEmpty(game.FullFolderPath) || !Directory.Exists(game.FullFolderPath)) continue;
-
-            string stagedName = game.FolderNumberFormatted;
-            if (stagedName.Length == 0) continue;
-
-            string stagedPath = Path.Combine(staging, stagedName);
-            if (string.Equals(game.FullFolderPath, stagedPath, StringComparison.OrdinalIgnoreCase))
-                continue;
-
-            await FolderHelper.MoveDirectoryAsync(game.FullFolderPath, stagedPath, OnFolderLocked);
-            game.FullFolderPath = stagedPath;
-        }
-    }
-
-    /// <summary>
-    /// Moves staged folders back to the card root in ascending numeric order, which
-    /// is what makes the filesystem lay their directory entries down in that order.
-    /// The result is verified rather than assumed, because the free slot search
-    /// resumes from a high water mark and can wrap, producing a rotation.
-    /// </summary>
-    private async Task PlaceFoldersInOrderAsync(IProgress<string>? progress)
-    {
-        if (!_reorderPending)
-            return;
-
-        for (int pass = 1; pass <= MaxOrderPasses; pass++)
-        {
-            if (pass > 1)
-            {
-                progress?.Report($"Reordering card, pass {pass}...");
-                await StageAllFoldersAsync(progress);
-            }
-
-            await MoveStagedIntoPlaceAsync(progress);
-
-            if (CardOrder.IsCardOrdered(SdCardPath))
-            {
-                _reorderPending = false;
-                return;
-            }
-        }
-
-        throw new IOException(
-            "The SD card's folder order could not be corrected after " + MaxOrderPasses +
-            " attempts. Games may launch the wrong title. Close anything using the " +
-            "card and save again.");
-    }
-
-    private async Task MoveStagedIntoPlaceAsync(IProgress<string>? progress)
-    {
-        foreach (var game in ItemList.OrderBy(g => g.SdNumber))
-        {
-            if (string.IsNullOrEmpty(game.FullFolderPath) || !Directory.Exists(game.FullFolderPath)) continue;
-
-            string finalName = game.FolderNumberFormatted;
-            if (finalName.Length == 0) continue;
-
-            string finalPath = Path.Combine(SdCardPath, finalName);
-            if (string.Equals(game.FullFolderPath, finalPath, StringComparison.OrdinalIgnoreCase))
-                continue;
-
-            progress?.Report($"Folder {finalName}: {DuplicateDetector.FormatForDisplay(game.Name)}");
-
-            // Wrap the lock callback so the user sees the destination folder name
-            // instead of the staging path
-            Func<string, Task<bool>>? lockCallback = OnFolderLocked != null
-                ? _ => OnFolderLocked(finalPath)
-                : null;
-            await FolderHelper.MoveDirectoryAsync(game.FullFolderPath, finalPath, lockCallback);
-
-            game.FullFolderPath = finalPath;
-            game.WorkMode = WorkMode.None;
-
-            for (int i = 0; i < game.ImageFiles.Count; i++)
-                game.ImageFiles[i] = Path.Combine(finalPath, Path.GetFileName(game.ImageFiles[i]));
-        }
-
-        string staging = CardOrder.StagingPath(SdCardPath);
-        if (Directory.Exists(staging) && !Directory.EnumerateFileSystemEntries(staging).Any())
-            Directory.Delete(staging);
-    }
-
-    private async Task BuildMenuIsoAsync(string folderName, string listIni, string tempDir, bool useRmenuKai, IProgress<string>? progress)
-    {
-        progress?.Report($"Building {(useRmenuKai ? "RmenuKai" : "RMENU")} ISO for folder {folderName}...");
-
-        string menuFolder = Path.Combine(SdCardPath, folderName);
-        Directory.CreateDirectory(menuFolder);
-
-        // Prepare the RMENU content in a temp directory
-        string contentDir = IsoBuilder.PrepareRmenuContent(ToolsPath, listIni, tempDir, useRmenuKai);
-        string ipBinPath = Path.Combine(ToolsPath, "shared", "IP.BIN");
-        string isoPath = Path.Combine(menuFolder, "RMENU.iso");
-
-        await Task.Run(() => IsoBuilder.BuildRmenuIso(contentDir, isoPath, ipBinPath));
-
-        // Copy RMENU build assets into BIN/RMENU/ for compatibility
-        string binRmenuDir = Path.Combine(menuFolder, "BIN", "RMENU");
-        await Task.Run(() =>
-        {
-            Directory.CreateDirectory(binRmenuDir);
-            foreach (var file in Directory.GetFiles(contentDir))
-            {
-                string dest = Path.Combine(binRmenuDir, Path.GetFileName(file));
-                File.Copy(file, dest, overwrite: true);
-            }
-        });
-    }
-
-    /// <summary>
-    /// Where a new item's files are written. While a reorder is pending this is the
-    /// staging folder, so the ordered placement pass allocates the directory entry.
-    /// Writing straight to the root would put a low numbered new folder at the end,
-    /// behind its own 3-digit extensions, which is the bug this all exists to fix.
-    /// </summary>
-    private string NewItemDestination(SaturnGame game)
-    {
-        string root = _reorderPending ? CardOrder.StagingPath(SdCardPath) : SdCardPath;
-        return Path.Combine(root, game.FolderNumberFormatted);
-    }
-
-    private async Task CopyNewItemsAsync(IProgress<string>? progress, IProgress<int>? itemProgress = null, int processedCount = 0, string? tempFolderRoot = null)
-    {
-        var newItems = ItemList.Where(g => g.WorkMode == WorkMode.New && !g.IsLegacyRmenu).ToList();
-
-        foreach (var game in newItems)
-        {
-            processedCount++;
-            itemProgress?.Report(processedCount);
-
-            string destFolder = NewItemDestination(game);
-
-            if (game.FileFormat == FileFormat.Compressed)
-            {
-                // Extract archive to temp, detect format, convert if needed, copy to SD
-                await UncompressAndCopyAsync(game, destFolder, progress, tempFolderRoot);
-            }
-            else if (game.FileFormat == FileFormat.Chd)
-            {
-                // Convert CHD to CCD/IMG/SUB via intermediate CUE/BIN
-                await ConvertChdAndCopyAsync(game, destFolder, progress, tempFolderRoot);
-            }
-            else if (string.IsNullOrEmpty(game.SourcePath) || !Directory.Exists(game.SourcePath))
-            {
-                continue;
-            }
-            else if (game.FileFormat == FileFormat.CueBin)
-            {
-                progress?.Report($"Copying {game.Name} to folder {game.FolderNumberFormatted}...");
-
-                string? cueFile = game.ImageFiles
-                    .FirstOrDefault(f => Path.GetExtension(f).Equals(".cue", StringComparison.OrdinalIgnoreCase));
-
-                if (cueFile != null)
-                {
-                    await Cue2CcdConverter.ConvertAsync(cueFile, destFolder, progress);
-                }
-            }
-            else
-            {
-                progress?.Report($"Copying {game.Name} to folder {game.FolderNumberFormatted}...");
-
-                Directory.CreateDirectory(destFolder);
-                foreach (var file in game.ImageFiles)
-                {
-                    if (!File.Exists(file)) continue;
-                    string destFile = Path.Combine(destFolder, Path.GetFileName(file));
-                    await Task.Run(() => File.Copy(file, destFile, overwrite: true));
-                }
-            }
-
-            game.FullFolderPath = destFolder;
-            game.WorkMode = WorkMode.None;
-            game.FileFormat = FileFormat.Uncompressed;
-            game.InnerFileFormat = null;
-            game.SelectedArchiveEntry = null;
-
-            // Re-populate image files from the new location
-            game.ImageFiles.Clear();
-            long totalSize = 0;
-            foreach (var file in Directory.GetFiles(destFolder))
-            {
-                var ext = Path.GetExtension(file).ToLowerInvariant();
-                if (Constants.AllImageExtensions.Contains(ext) || ext == ".img" || ext == ".sub" || ext == ".bin")
-                {
-                    game.ImageFiles.Add(file);
-                    totalSize += new FileInfo(file).Length;
-                }
-            }
-            game.Length = totalSize;
-        }
-
-        // Handle legacy RMENU new items (just need the folder created, ISO is built separately)
-        var newLegacy = ItemList.Where(g => g.WorkMode == WorkMode.New && g.IsLegacyRmenu).ToList();
-        foreach (var game in newLegacy)
-        {
-            string destFolder = NewItemDestination(game);
-            Directory.CreateDirectory(destFolder);
-            game.FullFolderPath = destFolder;
-            game.WorkMode = WorkMode.None;
-        }
-    }
-
-    /// <summary>
-    /// Extracts a compressed archive to a temp directory, detects the disc image
-    /// format inside, converts CUE/BIN if needed, then copies files to the SD card.
-    /// </summary>
-    private async Task UncompressAndCopyAsync(SaturnGame game, string destFolder, IProgress<string>? progress, string? tempFolderRoot = null)
-    {
-        string archivePath = game.SourcePath;
-        if (string.IsNullOrEmpty(archivePath) || !File.Exists(archivePath))
-            throw new FileNotFoundException(
-                $"Archive file not found: {Path.GetFileName(archivePath)}");
-
-        string tempRoot = !string.IsNullOrEmpty(tempFolderRoot) && Directory.Exists(tempFolderRoot)
-            ? tempFolderRoot
-            : Path.GetTempPath();
-        string tempExtractDir = Path.Combine(tempRoot,
-            "OrbitalOrganizer_ext_" + Guid.NewGuid().ToString("N")[..8]);
-
-        try
-        {
-            progress?.Report($"Extracting {Path.GetFileName(archivePath)}...");
-            await Task.Run(() =>
-            {
-                if (game.SelectedArchiveEntry != null)
-                    Services.ArchiveHelper.ExtractArchiveForEntry(archivePath, tempExtractDir, game.SelectedArchiveEntry);
-                else
-                    Services.ArchiveHelper.ExtractArchive(archivePath, tempExtractDir);
-            });
-
-            Directory.CreateDirectory(destFolder);
-
-            var extractedFiles = Directory.GetFiles(tempExtractDir);
-
-            // Look for CHD or CUE files that need format conversion
-            string? chdFile = extractedFiles
-                .FirstOrDefault(f => Path.GetExtension(f).Equals(".chd", StringComparison.OrdinalIgnoreCase));
-
-            string? cueFile = extractedFiles
-                .FirstOrDefault(f => Path.GetExtension(f).Equals(".cue", StringComparison.OrdinalIgnoreCase));
-
-            if (chdFile != null)
-            {
-                // Convert CHD to CCD/IMG/SUB via intermediate CUE/BIN
-                string tempCueDir = Path.Combine(tempExtractDir, "cue_temp");
-                var (success, message, cuePath) = await ChdConverter.ConvertToCueBinAsync(
-                    chdFile, tempCueDir, progress, gameName: game.Name);
-
-                if (success && cuePath != null)
-                {
-                    progress?.Report($"Converting {game.Name} (CUE/BIN to CCD/IMG/SUB)...");
-                    await Cue2CcdConverter.ConvertAsync(cuePath, destFolder, progress);
-                }
-            }
-            else if (cueFile != null)
-            {
-                progress?.Report($"Converting {game.Name} (CUE/BIN to CCD)...");
-                await Cue2CcdConverter.ConvertAsync(cueFile, destFolder, progress);
-            }
-            else
-            {
-                // Copy extracted disc image files directly
-                progress?.Report($"Copying {game.Name} to folder {game.FolderNumberFormatted}...");
-
-                foreach (var file in extractedFiles)
-                {
-                    var ext = Path.GetExtension(file).ToLowerInvariant();
-                    if (Constants.AllImageExtensions.Contains(ext) ||
-                        ext == ".img" || ext == ".sub" || ext == ".bin")
-                    {
-                        string destFile = Path.Combine(destFolder, Path.GetFileName(file));
-                        await Task.Run(() => File.Copy(file, destFile, overwrite: true));
-                    }
-                }
-            }
-
-            // Deferred rows read their metadata here, while the extracted
-            // sidecar text files are still on disk.
-            if (game.IsArchiveMetadataPending)
-            {
-                progress?.Report($"Reading metadata: {game.Name}...");
-                await Task.Run(() => ResolveDeferredArchiveMetadata(game, destFolder, tempExtractDir));
-            }
-        }
-        finally
-        {
-            try { Directory.Delete(tempExtractDir, recursive: true); } catch { }
-        }
-    }
-
-    /// <summary>
-    /// Fills a deferred archive row from the disc image just copied to the
-    /// SD card, plus any sidecar text files that were packed in the archive.
-    /// Fields still holding their provisional values take the parsed ones,
-    /// while fields the user edited before saving are kept.
-    /// </summary>
     private static void ResolveDeferredArchiveMetadata(SaturnGame game, string destFolder, string extractedFolder)
     {
         var provisional = game.PendingArchiveValues;
@@ -1244,92 +767,31 @@ public class Manager : INotifyPropertyChanged
         game.PendingArchiveValues = null;
     }
 
-    private async Task ConvertChdAndCopyAsync(SaturnGame game, string destFolder, IProgress<string>? progress, string? tempFolderRoot = null)
-    {
-        string? chdPath = game.ImageFiles
-            .FirstOrDefault(f => Path.GetExtension(f).Equals(".chd", StringComparison.OrdinalIgnoreCase));
-
-        if (string.IsNullOrEmpty(chdPath) || !File.Exists(chdPath))
-            throw new FileNotFoundException($"CHD file not found: {Path.GetFileName(chdPath)}");
-
-        string tempRoot = !string.IsNullOrEmpty(tempFolderRoot) && Directory.Exists(tempFolderRoot)
-            ? tempFolderRoot
-            : Path.GetTempPath();
-        string tempCueDir = Path.Combine(tempRoot,
-            "OrbitalOrganizer_chd_" + Guid.NewGuid().ToString("N")[..8]);
-
-        try
-        {
-            var (success, message, cuePath) = await ChdConverter.ConvertToCueBinAsync(
-                chdPath, tempCueDir, progress, gameName: game.Name);
-
-            if (!success || cuePath == null)
-                throw new InvalidOperationException(
-                    $"CHD conversion failed for {game.Name}: {message}");
-
-            // Convert CUE/BIN to CCD/IMG/SUB
-            progress?.Report($"Converting {game.Name} (CUE/BIN to CCD/IMG/SUB)...");
-            await Cue2CcdConverter.ConvertAsync(cuePath, destFolder, progress);
-        }
-        finally
-        {
-            try { Directory.Delete(tempCueDir, recursive: true); } catch { }
-        }
-    }
-
-    private async Task PatchProductIdsAsync(IProgress<string>? progress)
-    {
-        var dirtyGames = ItemList.Where(g => g.ProductIdDirty &&
-            !string.IsNullOrWhiteSpace(g.ProductId) &&
-            !g.IsMenuItem && !g.IsLegacyRmenu &&
-            !string.IsNullOrEmpty(g.FullFolderPath)).ToList();
-
-        foreach (var game in dirtyGames)
-        {
-            var (offset, filePath) = IpBinParser.FindIpBinInFolder(game.FullFolderPath);
-            if (offset < 0 || filePath == null) continue;
-
-            // Read the current product ID from the disc image, using the
-            // same space-split parsing as IpBinParser to avoid false mismatches
-            string currentId = System.Text.Encoding.ASCII
-                .GetString(IpBinParser.ReadBytesAtOffset(filePath, offset + Constants.IpOffsetProductId, Constants.IpLengthProductId))
-                .Trim();
-            int sp = currentId.IndexOf(' ');
-            if (sp >= 0) currentId = currentId[..sp];
-
-            if (currentId != game.ProductId.Trim())
-            {
-                progress?.Report($"Patching modified Product ID: {game.Name}...");
-                await Task.Run(() => ProductIdPatcher.PatchProductId(filePath, offset, game.ProductId));
-            }
-
-            game.ProductIdDirty = false;
-        }
-    }
-
-    private void WriteSidecarFiles(IProgress<string>? progress)
-    {
-        foreach (var game in ItemList)
-        {
-            if (game.IsMenuItem) continue;
-            if (!game.SidecarsDirty) continue;
-            if (string.IsNullOrEmpty(game.FullFolderPath)) continue;
-
-            MetadataManager.WriteToFolder(game.FullFolderPath, game);
-            game.SidecarsDirty = false;
-        }
-    }
 
     private SaturnGame? LoadGameFromSource(string sourcePath, string? specificFile)
     {
         if (!CardScanner.HasDiscImage(sourcePath))
             return null;
 
+        bool directorySource = specificFile == null;
+        if (directorySource)
+        {
+            var files = Directory.GetFiles(sourcePath);
+            specificFile = files.FirstOrDefault(f => Path.GetExtension(f).Equals(".ccd", StringComparison.OrdinalIgnoreCase))
+                ?? files.FirstOrDefault(f => Path.GetExtension(f).Equals(".cue", StringComparison.OrdinalIgnoreCase))
+                ?? files.FirstOrDefault(f => Path.GetExtension(f).Equals(".chd", StringComparison.OrdinalIgnoreCase));
+            if (specificFile == null)
+            {
+                var (_, identifiedFile) = IpBinParser.FindIpBinInFolder(sourcePath);
+                specificFile = identifiedFile ?? files.FirstOrDefault(f => Constants.DiscImageExtensions.Contains(Path.GetExtension(f).ToLowerInvariant()));
+            }
+        }
+
         // CHD files need special handling via libchdr
         bool isChdFile = specificFile != null &&
             Path.GetExtension(specificFile).Equals(".chd", StringComparison.OrdinalIgnoreCase);
 
-        if (isChdFile)
+        if (isChdFile && !directorySource)
             return LoadGameFromChd(specificFile!, sourcePath);
 
         // If a specific CUE file was selected, parse it to find related BIN files
@@ -1356,13 +818,14 @@ public class Manager : INotifyPropertyChanged
             companionFiles = new List<string> { specificFile! };
             string basePath = Path.Combine(Path.GetDirectoryName(specificFile!)!,
                                            Path.GetFileNameWithoutExtension(specificFile!));
+            var files = Directory.GetFiles(sourcePath);
 
-            string imgFile = basePath + ".img";
-            if (File.Exists(imgFile))
+            string? imgFile = files.FirstOrDefault(f => f.Equals(basePath + ".img", StringComparison.OrdinalIgnoreCase));
+            if (imgFile != null)
                 companionFiles.Add(imgFile);
 
-            string subFile = basePath + ".sub";
-            if (File.Exists(subFile))
+            string? subFile = files.FirstOrDefault(f => f.Equals(basePath + ".sub", StringComparison.OrdinalIgnoreCase));
+            if (subFile != null)
                 companionFiles.Add(subFile);
         }
         else if (isMdsFile)
@@ -1374,11 +837,15 @@ public class Manager : INotifyPropertyChanged
         }
 
         // Try to parse IP.BIN from the relevant files
-        var (offset, filePath) = isCueFile && cueRelatedFiles != null
-            ? FindIpBinInFiles(cueRelatedFiles)
-            : companionFiles != null
-                ? FindIpBinInFiles(companionFiles)
-                : IpBinParser.FindIpBinInFolder(sourcePath);
+        var (offset, filePath) = isChdFile
+            ? (0L, specificFile)
+            : isCueFile && cueRelatedFiles != null
+                ? FindIpBinInFiles(cueRelatedFiles)
+                : companionFiles != null
+                    ? FindIpBinInFiles(companionFiles)
+                    : specificFile != null
+                        ? FindIpBinInFiles(new List<string> { specificFile })
+                        : (-1L, null);
 
         SaturnGame game;
 
@@ -1464,32 +931,15 @@ public class Manager : INotifyPropertyChanged
                 game.ImageFiles.Add(file);
                 totalSize += new FileInfo(file).Length;
             }
+            if (isCcdFile && directorySource)
+                game.FileFormat = FileFormat.CloneCd;
         }
         else if (specificFile != null)
         {
             // Specific non-CUE/non-CCD file selected
             game.ImageFiles.Add(specificFile);
             totalSize += new FileInfo(specificFile).Length;
-        }
-        else
-        {
-            // Directory: collect all image files
-            foreach (var file in Directory.GetFiles(sourcePath))
-            {
-                var ext = Path.GetExtension(file).ToLowerInvariant();
-                if (Constants.AllImageExtensions.Contains(ext) || ext == ".img" || ext == ".sub" || ext == ".bin" ||
-                    ext == ".chd")
-                {
-                    game.ImageFiles.Add(file);
-                    totalSize += new FileInfo(file).Length;
-                }
-            }
-
-            if (game.ImageFiles.Any(f => Path.GetExtension(f).Equals(".ccd", StringComparison.OrdinalIgnoreCase)))
-                game.FileFormat = FileFormat.CloneCd;
-            else if (game.ImageFiles.Any(f => Path.GetExtension(f).Equals(".cue", StringComparison.OrdinalIgnoreCase)))
-                game.FileFormat = FileFormat.CueBin;
-            else if (game.ImageFiles.Any(f => Path.GetExtension(f).Equals(".chd", StringComparison.OrdinalIgnoreCase)))
+            if (isChdFile)
                 game.FileFormat = FileFormat.Chd;
         }
 
@@ -1942,168 +1392,7 @@ public class Manager : INotifyPropertyChanged
     /// Estimates whether the SD card has enough free space for the pending
     /// save. Sizes for compressed and converted images are estimates.
     /// </summary>
-    public async Task<SpaceCheckResult> CalculateRequiredSpaceAsync()
-    {
-        var result = new SpaceCheckResult
-        {
-            MetadataBuffer = 1 * 1024 * 1024
-        };
-
-        if (string.IsNullOrEmpty(SdCardPath) || !Directory.Exists(SdCardPath))
-        {
-            // Nothing to measure against, let the save proceed.
-            result.HasSufficientSpace = true;
-            return result;
-        }
-
-        await Task.Run(() =>
-        {
-            result.AvailableSpace = GetAvailableSpace(SdCardPath);
-
-            // Menu footprint. Rebuilding an existing RMENU.iso only needs
-            // headroom. A fresh card needs the menu assets plus the ISO
-            // built from them, and Both mode carries a second instance.
-            string menuFolder = Path.Combine(SdCardPath, Constants.MenuFolderName);
-            result.MenuFolderExists = Directory.Exists(menuFolder);
-            bool menuIsoExists = File.Exists(Path.Combine(menuFolder, "RMENU.iso"));
-
-            const long menuWiggleRoom = 5L * 1024 * 1024;
-            int menuInstances = MenuKindSelected == MenuKind.Both ? 2 : 1;
-
-            long menuAssetSize = 0;
-            if (!menuIsoExists && !string.IsNullOrEmpty(ToolsPath))
-            {
-                menuAssetSize += GetDirectorySize(Path.Combine(ToolsPath, "shared"));
-                string menuDir = MenuKindSelected == MenuKind.Rmenu ? "rmenu_legacy" : "rmenukai";
-                menuAssetSize += GetDirectorySize(Path.Combine(ToolsPath, menuDir));
-            }
-            result.MenuSpaceNeeded = (menuAssetSize * 2 + menuWiggleRoom) * menuInstances;
-
-            // Orphaned numbered folders get deleted during save, giving their
-            // space back before the copies start.
-            var knownFolders = new HashSet<string>(
-                ItemList.Where(g => !g.IsMenuItem && g.WorkMode != WorkMode.New)
-                        .Select(g => Path.GetFileName(g.FullFolderPath)),
-                StringComparer.OrdinalIgnoreCase);
-
-            foreach (var dir in Directory.GetDirectories(SdCardPath))
-            {
-                string folderName = Path.GetFileName(dir);
-                if (!int.TryParse(folderName, out int num)) continue;
-                if (num == Constants.MenuFolderNumber) continue;
-
-                if (!knownFolders.Contains(folderName))
-                    result.SpaceToBeFreed += GetDirectorySize(dir);
-            }
-
-            // Size of the items that will be copied onto the card.
-            foreach (var game in ItemList)
-            {
-                if (game.WorkMode != WorkMode.New || game.IsLegacyRmenu) continue;
-
-                result.NewItemCount++;
-                long size = Math.Max(game.Length, 0);
-
-                var format = game.FileFormat == FileFormat.Compressed
-                    ? game.InnerFileFormat ?? FileFormat.Uncompressed
-                    : game.FileFormat;
-
-                if (game.FileFormat == FileFormat.Compressed)
-                    result.ContainsEstimatedSizes = true;
-
-                if (format == FileFormat.CueBin)
-                {
-                    // Conversion to CCD/IMG/SUB writes full 2352 byte sectors
-                    // plus 96 bytes of subchannel each, so images ripped with
-                    // 2048 byte sectors grow by roughly a fifth.
-                    size = (long)(size * 1.25);
-                    result.ContainsEstimatedSizes = true;
-                }
-                else if (format == FileFormat.Chd)
-                {
-                    // Length holds the compressed CHD size, the converted
-                    // output will be larger.
-                    size *= 2;
-                    result.ContainsEstimatedSizes = true;
-                }
-
-                result.NewItemsSize += size;
-            }
-
-            result.TotalNeeded = result.NewItemsSize + result.MenuSpaceNeeded + result.MetadataBuffer;
-            result.EffectiveAvailable = result.AvailableSpace + result.SpaceToBeFreed;
-            result.Shortfall = result.TotalNeeded - result.EffectiveAvailable;
-            result.HasSufficientSpace = result.Shortfall <= 0;
-        });
-
-        return result;
-    }
-
-    /// <summary>
-    /// Builds the warning text shown when the space check comes up short.
-    /// </summary>
-    public static string BuildSpaceWarningMessage(SpaceCheckResult spaceCheck)
-    {
-        var sb = new StringBuilder();
-        sb.AppendLine("Insufficient space on the SD card.\n");
-        sb.AppendLine("Space needed:");
-        sb.AppendLine($"  • New disc images ({spaceCheck.NewItemCount}): {FormatBytes(spaceCheck.NewItemsSize)}");
-        sb.AppendLine($"  • Menu files: ~{FormatBytes(spaceCheck.MenuSpaceNeeded)}");
-        sb.AppendLine($"  • Metadata files: ~{FormatBytes(spaceCheck.MetadataBuffer)}");
-        sb.AppendLine($"  Total: ~{FormatBytes(spaceCheck.TotalNeeded)}\n");
-        sb.AppendLine($"Space available: {FormatBytes(spaceCheck.AvailableSpace)}");
-        if (spaceCheck.SpaceToBeFreed > 0)
-        {
-            sb.AppendLine($"Space to be freed: {FormatBytes(spaceCheck.SpaceToBeFreed)}");
-            sb.AppendLine($"Effective available: {FormatBytes(spaceCheck.EffectiveAvailable)}");
-        }
-        sb.AppendLine($"\nShortfall: ~{FormatBytes(spaceCheck.Shortfall)}");
-        if (spaceCheck.ContainsEstimatedSizes)
-            sb.AppendLine("\nNote: Some items are compressed or need conversion and their final sizes are estimates.");
-        sb.Append("\nDo you want to proceed anyway?");
-        return sb.ToString();
-    }
-
     private static string FormatBytes(long bytes) => ByteSize.FromBytes(bytes).ToString("0.##");
-
-    private static long GetAvailableSpace(string path)
-    {
-        try
-        {
-            // Windows paths resolve straight from the root. On Linux and
-            // macOS the root is always "/", so find the longest mount point
-            // that contains the path instead.
-            string? pathRoot = Path.GetPathRoot(path);
-            if (!string.IsNullOrEmpty(pathRoot) && pathRoot != "/" && pathRoot != "\\")
-                return new DriveInfo(pathRoot).AvailableFreeSpace;
-
-            string fullPath = Path.GetFullPath(path);
-            if (!fullPath.EndsWith(Path.DirectorySeparatorChar))
-                fullPath += Path.DirectorySeparatorChar;
-
-            DriveInfo? best = null;
-            foreach (var drive in DriveInfo.GetDrives())
-            {
-                if (!drive.IsReady) continue;
-
-                string mountPath = drive.RootDirectory.FullName;
-                if (!mountPath.EndsWith(Path.DirectorySeparatorChar))
-                    mountPath += Path.DirectorySeparatorChar;
-
-                if (fullPath.StartsWith(mountPath, StringComparison.Ordinal) &&
-                    (best == null || mountPath.Length > best.RootDirectory.FullName.Length))
-                {
-                    best = drive;
-                }
-            }
-
-            return best?.AvailableFreeSpace ?? 0;
-        }
-        catch
-        {
-            return 0;
-        }
-    }
 
     private static long GetDirectorySize(string path)
     {
@@ -2252,7 +1541,11 @@ public class Manager : INotifyPropertyChanged
             {
                 int removed = 0;
                 if (!string.IsNullOrWhiteSpace(item.Folder))
-                    removed += item.AlternativeFolders.RemoveAll(af => af == item.Folder);
+                {
+                    var retained = item.AlternativeFolders.Where(af => af != item.Folder).ToList();
+                    removed += item.AlternativeFolders.Count - retained.Count;
+                    item.AlternativeFolders = retained;
+                }
 
                 // Deduplicate
                 var distinct = item.AlternativeFolders.Distinct(StringComparer.Ordinal).ToList();
@@ -2277,6 +1570,6 @@ public class Manager : INotifyPropertyChanged
 
     protected void OnPropertyChanged([CallerMemberName] string? propertyName = null)
     {
-        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+        NotifyObservers(() => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName)));
     }
 }

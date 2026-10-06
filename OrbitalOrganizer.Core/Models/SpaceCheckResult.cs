@@ -6,6 +6,12 @@ namespace OrbitalOrganizer.Core.Models;
 /// </summary>
 public class SpaceCheckResult
 {
+    public long TemporarySpaceNeeded { get; set; }
+    public long ExternalTemporarySpaceNeeded { get; set; }
+    public long TemporaryAvailableSpace { get; set; }
+    public long TemporaryShortfall { get; set; }
+    public string TemporaryFolderPath { get; set; } = "";
+    public bool TemporarySharesCardVolume { get; set; }
     public long AvailableSpace { get; set; }
     public long SpaceToBeFreed { get; set; }
     public long NewItemsSize { get; set; }

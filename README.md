@@ -14,8 +14,6 @@ Please note that Rhea/Phoebe SD cards must be formatted as FAT32.
 - [Credits](#credits)
 - [Supported Platforms](#supported-platforms)
 - [Supported Disc Image Formats](#supported-disc-image-formats)
-- [Converting Disc Images to CDI Format](#converting-disc-images-to-cdi-format)
-  - [Troubleshooting](#troubleshooting)
 - [Basic Usage](#basic-usage)
   - [Loading an SD Card](#loading-an-sd-card)
   - [Adding Games](#adding-games)
@@ -24,13 +22,13 @@ Please note that Rhea/Phoebe SD cards must be formatted as FAT32.
   - [Batch Folder Move and Rename](#batch-folder-move-and-rename)
   - [Modifying Product ID](#modifying-product-id)
   - [Reordering Games](#reordering-games)
+  - [Disc Image Options](#disc-image-options)
   - [Searching and Filtering](#searching-and-filtering)
   - [Saving Changes](#saving-changes)
   - [Undo and Redo](#undo-and-redo)
   - [Disc Image Info](#disc-image-info)
 - [Menu Type Options](#menu-type-options)
 - [SD Card Compatibility](#sd-card-compatibility)
-- [Credits](#credits)
 - [Legal and Licensing](#legal-and-licensing)
   - [Orbital Organizer](#orbital-organizer-1)
   - [RMENU](#rmenu)
@@ -38,9 +36,14 @@ Please note that Rhea/Phoebe SD cards must be formatted as FAT32.
   - [Third-Party Components](#third-party-components)
 
 ## Current Version
-Orbital Organizer is currently at version [2.1.6](https://github.com/DerekPascarella/Orbital-Organizer/releases/tag/2.1.6).
+Orbital Organizer is currently at version [2.2.0](https://github.com/DerekPascarella/Orbital-Organizer/releases/tag/2.2.0).
 
 ## Changelog
+- **Version 2.2.0 (2026-10-23)**
+  - Progress status bar now gives detailed information (see [Issue 32](https://github.com/DerekPascarella/Orbital-Organizer/issues/32)).
+  - New option to convert CUE-based disc images to CDI format instead of CCD/IMG/SUB (see [Issue 33](https://github.com/DerekPascarella/Orbital-Organizer/issues/33)).
+  - Sort List button now correctly orders subfolders, RMENU titles, and multi-disc games (see [Issue 34](https://github.com/DerekPascarella/Orbital-Organizer/issues/34)).
+  - Saving large changes to SD card is now faster and no longer freezes the application (see [Issue 35](https://github.com/DerekPascarella/Orbital-Organizer/issues/35)).
 - **Version 2.1.6 (2026-10-06)**
   - Dragging entry up or down on Games List now automatically scrolls on Linux and macOS (see [Issue 28](https://github.com/DerekPascarella/Orbital-Organizer/issues/28)).
   - Dragging entry up or down on Batch Folder Move/Rename tree now automatically scrolls (see [Issue 29](https://github.com/DerekPascarella/Orbital-Organizer/issues/29)).
@@ -124,6 +127,8 @@ Orbital Organizer is currently at version [2.1.6](https://github.com/DerekPascar
 - **Testing**
   - Multimod
   - Kanji
+- **Special Thanks**
+  - Sonik for his work on [GD MENU Card Manager](https://github.com/sonik-br/GDMENUCardManager), upon which the Orbital Organizer GUI is based
 
 ## Supported Platforms
 
@@ -143,34 +148,25 @@ Orbital Organizer is currently at version [2.1.6](https://github.com/DerekPascar
 | DiscJuggler | `.cdi` | Single-file disc image |
 | Alcohol 120% | `.mds`, `.mdf` | Two-file set |
 | CloneCD | `.ccd`, `.img`, `.sub` | Three-file set |
-| CUE-based | `.cue` (+ `.bin`, `.iso`, `.wav`, etc.) | Automatically converted to CCD/IMG/SUB |
-| CHD | `.chd` | Decompressed to CUE/BIN then converted to CCD/IMG/SUB |
+| CUE-based | `.cue` (+ `.bin`, `.iso`, `.wav`, etc.) | Automatically converted to CCD/IMG/SUB (default) or CDI |
+| CHD | `.chd` | Decompressed to CUE/BIN then converted to CCD/IMG/SUB (default) or CDI |
 | Compressed | `.zip`, `.7z`, `.rar` | Archives containing any of the above formats |
-
-## Converting Disc Images to CDI Format
-
-Some modified Sega Saturn games may require conversion to DiscJuggler (CDI) format. This can be accomplished using [DAEMON Tools](https://www.daemon-tools.cc) and [DiscJuggler](https://en.wikipedia.org/wiki/DiscJuggler).
-
-1. Mount the source disc image's CUE sheet with [DAEMON Tools](https://www.daemon-tools.cc).
-2. Use [DiscJuggler](https://en.wikipedia.org/wiki/DiscJuggler) to dump the contents of the virtual CD-ROM drive to CDI format.
-
-### Troubleshooting
-Newer versions of Windows may cause issues with the DAEMON Tools and DiscJuggler method. If conversion fails to produce a working disc image, the following process can be used.
-1. Provision a Windows XP virtual machine using a platform like [VMware](https://www.vmware.com/products/desktop-hypervisor/workstation-and-fusion) or [VirtualBox](https://www.virtualbox.org/wiki/Downloads).
-2. Inside the VM, use a specific version of DAEMON Tools ([v3.47](https://archive.org/details/daemon-tools-347)) to mount the source image.
-3. Use a specific version of DiscJuggler ([v6.00.1400](https://archive.org/details/disc-juggler-pro-v-6.00.1400)) to dump to CDI.
 
 ## Basic Usage
 
 ### Loading an SD Card
-Select the SD card drive from the **SD Drive** dropdown, or click the folder icon to browse for a custom folder. Once selected, Orbital Organizer scans numbered folders on the card and reads sidecar metadata files (`Name.txt`, `Folder.txt`, `Disc.txt`, etc.) from each game folder.
+Select the SD card drive from the **SD Drive** dropdown, or click the folder icon to browse for a custom folder. Once selected, Orbital Organizer reads game titles, folder paths, disc numbers, and other metadata from the `GameDB.json` file in the root of the SD card.
 
-If sidecar metadata files are missing, Orbital Organizer will prompt to scan disc images for `IP.BIN` header data. This extracts the game title, product ID, region, version, and release date directly from each disc image.
+SD cards without a `GameDB.json` file (e.g., ones set up manually or by older versions of Orbital Organizer) are offered a one-time migration that reads the existing metadata files in each numbered folder (`Name.txt`, `Folder.txt`, `Disc.txt`, etc.) and builds `GameDB.json` from them. Nothing is deleted. The old metadata files are still written on every save so other tools can read them.
+
+If metadata is missing for any game, Orbital Organizer will prompt to scan disc images for `IP.BIN` header data. This extracts the game title, product ID, region, version, and release date directly from each disc image.
 
 The **Temp. Folder** setting controls where temporary files are stored during operations. By default, the system temp directory is used.
 
 ### Adding Games
 New games can be added by clicking the **+** button or by dragging disc image files, folders, or compressed archives directly onto the game list. Added games appear with "Other" in the **Location** column until changes are saved to the SD card.
+
+CUE-based disc images are automatically converted to **CCD/IMG/SUB** (default) or **CDI** when **Save Changes** is clicked. See [Disc Image Options](#disc-image-options) to choose the conversion format.
 
 ### Removing Games
 Select one or more games in the list and click the **-** button. The corresponding numbered folders are deleted from the SD card when changes are saved.
@@ -203,6 +199,11 @@ Orbital Organizer allows modification of this ID by editing the **Product ID** c
 ### Reordering Games
 Use the **up** and **down** arrow buttons to move a selected game in the list. The **Sort List** button sorts all games alphabetically by a combination of folder path (RmenuKai only), title, and disc number.
 
+### Disc Image Options
+After loading an SD card or folder, click **Disc Image Options** to the right of **Sort List**. Under **Conversion Format**, select **CCD/IMG/SUB** (default) or **CDI**, then click **Save**. The preference is remembered and applies to automatic conversion of newly added CUE-based and CHD disc images, including those in supported archives. Images already on the SD card are not reconverted.
+
+Some patched Saturn games require CDI format, including the English translation of "Vandal Hearts" and the 4MB RAM cartridge hack of "Ultraman: Hikari no Kyojin Densetsu". Some video CD layouts also require CDI.
+
 ### Searching and Filtering
 The **Search/Filter** text box accepts search terms that match against game titles and product IDs.
 - The **search** button (magnifying glass) navigates to the next matching entry in the list.
@@ -213,7 +214,7 @@ The **Search/Filter** text box accepts search terms that match against game titl
 Clicking **Save Changes** writes all pending changes to the SD card. This includes:
 - Renumbering game folders sequentially (starting from `02`).
 - Copying new game files to the SD card.
-- Converting CUE-based disc images to CloneCD format.
+- Converting newly added CUE-based and CHD disc images to the selected format (CCD/IMG/SUB or CDI).
 - Rebuilding the RMENU/RmenuKai menu ISO in folder `01`.
 - Generating `LIST.INI` for the RMENU/RmenuKai menu system.
 - Generating `GameList.txt` with a formatted table of all games on the card.
@@ -251,13 +252,6 @@ Orbital Organizer ships with a bundled version of RmenuKai. To update to a newer
 Orbital Organizer works with any existing Rhea/Phoebe SD card out of the box, regardless of how it was previously set up or managed. This includes SD cards built manually, SD cards managed by the traditional RMENU/RmenuKai rebuild process, and SD cards managed by the previous version of this tool.
 
 When loading an SD card for the first time, Orbital Organizer reads `LIST.INI` to recover game titles and optional virtual folder paths, then scans disc images for any remaining metadata. No manual migration or preparation is needed.
-
-## Credits
-
-- **Programming**
-  - Derek Pascarella (ateam)
-- **Special Thanks**
-  - Sonik for his work on [GD MENU Card Manager](https://github.com/sonik-br/GDMENUCardManager), upon which the Orbital Organizer GUI is based
 
 ## Legal and Licensing
 

@@ -270,6 +270,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     private void ApplySettings()
     {
         LockCheckBox.IsChecked = _settings.EnableLockCheck;
+        _manager.ConversionFormat = _settings.ConversionFormat;
 
         if (!string.IsNullOrEmpty(_settings.TempFolder) && Directory.Exists(_settings.TempFolder))
             TempFolderTextBox.Text = _settings.TempFolder;
@@ -289,6 +290,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     private void SaveSettings()
     {
         _settings.EnableLockCheck = LockCheckBox.IsChecked == true;
+        _settings.ConversionFormat = _manager.ConversionFormat;
         _settings.TempFolder = NormalizeTempFolderForSave(TempFolderTextBox.Text);
         _settings.WindowLeft = Position.X;
         _settings.WindowTop = Position.Y;
@@ -959,6 +961,16 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             await error.ShowWindowDialogAsync(this);
         }
         finally { IsBusy = false; }
+    }
+
+    private async void ButtonDiscImageOptions_Click(object? sender, RoutedEventArgs e)
+    {
+        if (CannotEdit) return;
+        var dialog = new DiscImageOptionsWindow(_manager.ConversionFormat);
+        await dialog.ShowDialog(this);
+        if (!dialog.Saved || CannotEdit) return;
+        _manager.ConversionFormat = dialog.ConversionFormat;
+        SaveSettings();
     }
 
     private async void ButtonSort_Click(object? sender, RoutedEventArgs e)

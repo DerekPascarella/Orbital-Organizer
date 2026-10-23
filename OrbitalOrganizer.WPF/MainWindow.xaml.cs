@@ -195,6 +195,7 @@ public partial class MainWindow : Window, GongSolutions.Wpf.DragDrop.IDropTarget
     private void ApplySettings()
     {
         LockCheckBox.IsChecked = _settings.EnableLockCheck;
+        _manager.ConversionFormat = _settings.ConversionFormat;
 
         if (!string.IsNullOrEmpty(_settings.TempFolder) && Directory.Exists(_settings.TempFolder))
             TempFolderTextBox.Text = _settings.TempFolder;
@@ -215,6 +216,7 @@ public partial class MainWindow : Window, GongSolutions.Wpf.DragDrop.IDropTarget
     private void SaveSettings()
     {
         _settings.EnableLockCheck = LockCheckBox.IsChecked == true;
+        _settings.ConversionFormat = _manager.ConversionFormat;
         _settings.TempFolder = NormalizeTempFolderForSave(TempFolderTextBox.Text);
         _settings.WindowLeft = Left;
         _settings.WindowTop = Top;
@@ -827,6 +829,16 @@ public partial class MainWindow : Window, GongSolutions.Wpf.DragDrop.IDropTarget
             MessageBox.Show(this, ex.Message, "Error", MessageBoxButton.OK, MessageBoxImage.None);
         }
         finally { IsBusy = false; }
+    }
+
+    private void ButtonDiscImageOptions_Click(object sender, RoutedEventArgs e)
+    {
+        if (CannotEdit) return;
+        var dialog = new DiscImageOptionsWindow(_manager.ConversionFormat) { Owner = this };
+        dialog.ShowDialog();
+        if (!dialog.Saved || CannotEdit) return;
+        _manager.ConversionFormat = dialog.ConversionFormat;
+        SaveSettings();
     }
 
     private void ButtonSort_Click(object sender, RoutedEventArgs e)

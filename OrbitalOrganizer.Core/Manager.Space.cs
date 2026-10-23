@@ -1,6 +1,7 @@
 using System.Runtime.InteropServices;
 using System.Text;
 using OrbitalOrganizer.Core.Models;
+using OrbitalOrganizer.Core.Services;
 
 namespace OrbitalOrganizer.Core;
 
@@ -58,14 +59,28 @@ public partial class Manager
                 if (game.FileFormat == FileFormat.Compressed) result.ContainsEstimatedSizes = true;
                 if (format == FileFormat.CueBin)
                 {
-                    size = (long)(size * 1.25);
-                    result.ContainsEstimatedSizes = true;
+                    if (ConversionFormat == DiscConversionFormat.Cdi && game.FileFormat == FileFormat.CueBin)
+                    {
+                        string cue = game.ImageFiles.First(p => Path.GetExtension(p).Equals(".cue", StringComparison.OrdinalIgnoreCase));
+                        size = Cue2CdiConverter.ExpectedOutput(cue).Values.Sum();
+                    }
+                    else
+                    {
+                        size = (long)(size * 1.25);
+                        result.ContainsEstimatedSizes = true;
+                    }
                 }
                 else if (format == FileFormat.Chd)
                 {
                     size *= 2;
                     intermediate += size;
                     result.ContainsEstimatedSizes = true;
+                }
+                if (ConversionFormat == DiscConversionFormat.Cdi &&
+                    (format == FileFormat.Chd || (game.FileFormat == FileFormat.Compressed && format == FileFormat.CueBin)))
+                {
+                    // Allow for the generated pregap and CDI metadata in estimates.
+                    size += 1024 * 1024;
                 }
                 result.NewItemsSize += size;
                 if (onCard) retainedWork += intermediate;

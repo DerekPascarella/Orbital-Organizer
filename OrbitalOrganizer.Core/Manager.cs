@@ -100,6 +100,13 @@ public partial class Manager : INotifyPropertyChanged
     private bool _enableLockCheck = true;
     public bool EnableLockCheck { get => _enableLockCheck; set { EnsureCanMutate(); _enableLockCheck = value; } }
 
+    private DiscConversionFormat _conversionFormat;
+    public DiscConversionFormat ConversionFormat
+    {
+        get => _conversionFormat;
+        set { EnsureCanMutate(); _conversionFormat = value == DiscConversionFormat.Cdi ? value : DiscConversionFormat.Ccd; }
+    }
+
     /// <summary>
     /// Callback for when a folder move fails due to a file lock. The UI sets this
     /// to prompt the user. Return true to retry, false to abort.
@@ -243,6 +250,7 @@ public partial class Manager : INotifyPropertyChanged
 
     /// <summary>
     /// Sorts the item list alphabetically by Folder + Name + Disc.
+    /// Folders are ignored for RMENU, which has no folders.
     /// Strips [UNIQUE-] tags for sorting so duplicates sort together.
     /// </summary>
     public void SortList()
@@ -250,12 +258,14 @@ public partial class Manager : INotifyPropertyChanged
         EnsureCanMutate();
         var oldOrder = ItemList.ToList();
 
+        bool byFolder = MenuKindSelected != MenuKind.Rmenu;
         var menuEntry = ItemList.FirstOrDefault(g => g.IsMenuItem);
         var sorted = ItemList
             .Where(g => !g.IsMenuItem)
-            .OrderByDescending(g => !string.IsNullOrWhiteSpace(g.Folder))
-            .ThenBy(g => g.Folder, StringComparer.OrdinalIgnoreCase)
+            .OrderByDescending(g => byFolder && !string.IsNullOrWhiteSpace(g.Folder))
+            .ThenBy(g => byFolder ? g.Folder : "", Comparer<string>.Create(CompareFolderPaths))
             .ThenBy(g => DuplicateDetector.StripUniqueTag(g.Name), StringComparer.OrdinalIgnoreCase)
+            .ThenBy(g => int.TryParse(g.Disc.Split('/')[0], out int disc) ? disc : 0)
             .ThenBy(g => g.Disc)
             .ToList();
 
@@ -271,6 +281,20 @@ public partial class Manager : INotifyPropertyChanged
             OldOrder = oldOrder,
             NewOrder = ItemList.ToList()
         });
+    }
+
+    // Compares one path segment at a time so "RPG\Japan" stays next to "RPG"
+    // instead of landing after "RPGs".
+    private static int CompareFolderPaths(string? a, string? b)
+    {
+        var left = (a ?? "").Split('\\');
+        var right = (b ?? "").Split('\\');
+        for (int i = 0; i < Math.Min(left.Length, right.Length); i++)
+        {
+            int result = StringComparer.OrdinalIgnoreCase.Compare(left[i], right[i]);
+            if (result != 0) return result;
+        }
+        return left.Length.CompareTo(right.Length);
     }
 
     /// <summary>

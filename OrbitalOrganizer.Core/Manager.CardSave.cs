@@ -13,7 +13,7 @@ public partial class Manager
     private CardSaveTransaction? OpenSave() => CardSaveTransaction.Open(SdCardPath,
         (from, to) => FolderHelper.MoveDirectoryAsync(from, to, OnFolderLocked));
 
-    public Task RecoverCardAsync() => RunOperationAsync(RecoverCardCoreAsync);
+    public Task RecoverCardAsync() => RunOperationAsync(() => RunInBackground(RecoverCardCoreAsync));
 
     private async Task RecoverCardCoreAsync()
     {
@@ -26,19 +26,19 @@ public partial class Manager
         catch { _needsRecovery = true; throw; }
         if (committed)
         {
-            Mutate(() => ApplyPublishedRows(tx.Items));
-            Mutate(() => UndoManager.Clear());
+            MutateOnUi(() => ApplyPublishedRows(tx.Items));
+            MutateOnUi(() => UndoManager.Clear());
             _removedItems.Clear();
             LastSaveOutcome = "Completed the interrupted save.";
         }
         else
         {
-            Mutate(() => ApplyReadyRows(tx.Items));
+            MutateOnUi(() => ApplyReadyRows(tx.Items));
             LastSaveOutcome = "Original folders restored. Completed imports are retained for the next save.";
         }
     }
 
-    public Task SaveAsync(IProgress<string>? progress = null, IProgress<int>? itemProgress = null, string? tempFolderRoot = null) => RunOperationAsync(async () =>
+    public Task SaveAsync(IProgress<string>? progress = null, IProgress<int>? itemProgress = null, string? tempFolderRoot = null) => RunOperationAsync(() => RunInBackground(async () =>
     {
         try { await SaveCoreAsync(progress, itemProgress, tempFolderRoot); }
         catch
@@ -47,15 +47,16 @@ public partial class Manager
             catch { LastSaveOutcome = "Recovery needs review. Save data has been preserved."; }
             throw;
         }
-    });
+    }));
 
     private async Task SaveCoreAsync(IProgress<string>? progress = null, IProgress<int>? itemProgress = null, string? tempFolderRoot = null)
     {
         if (string.IsNullOrEmpty(SdCardPath)) throw new InvalidOperationException("No SD card path set.");
         LastSaveOutcome = null;
+        progress?.Report("Preparing save...");
         await RecoverCardCoreAsync();
         var tx = OpenSave();
-        Mutate(() => ReconcilePreparing(tx, false));
+        MutateOnUi(() => ReconcilePreparing(tx, false));
         string root = Path.GetFullPath(SdCardPath);
         string tempRoot = Path.GetFullPath(!string.IsNullOrEmpty(tempFolderRoot) && Directory.Exists(tempFolderRoot) ? tempFolderRoot : Path.GetTempPath());
         var rows = ItemList.ToList();
@@ -128,7 +129,11 @@ public partial class Manager
             else foreach (string file in Directory.GetFiles(output, "*", SearchOption.AllDirectories))
                     metadata.Add((item.FinalName + "/" + Path.GetRelativePath(output, file).Replace('\\', '/'), file, null));
         }
-        foreach (var game in games.Where(g => g.SidecarsDirty)) AddSidecarActions(game, metadata);
+        foreach (var game in games.Where(g => g.SidecarsDirty))
+        {
+            var item = tx.Items.Single(x => x.Id == game.SaveId);
+            AddSidecarActions(game, item.OriginalName == null ? null : Path.Combine(root, item.OriginalName), metadata);
+        }
         GameDatabase? db = null;
         if (_gameDb != null)
         {
@@ -176,10 +181,10 @@ public partial class Manager
         progress?.Report("Publishing folders in menu order...");
         await tx.PublishAsync();
         await tx.CommitAsync();
-        Mutate(() => ApplyPublishedRows(tx.Items));
+        MutateOnUi(() => ApplyPublishedRows(tx.Items));
         _gameDb = db;
         _removedItems.Clear();
-        Mutate(() => UndoManager.Clear());
+        MutateOnUi(() => UndoManager.Clear());
         LastSaveOutcome = "Done!";
         progress?.Report(LastSaveOutcome);
     }
@@ -191,7 +196,9 @@ public partial class Manager
         return result;
     }
 
-    private static void AddSidecarActions(SaturnGame game, List<(string Target, string? Source, string? Text)> actions)
+    // Sidecars already holding the exact bytes the save would write are skipped.
+    // SidecarUnchanged must match the Encoding.UTF8 (with BOM) the metadata loop writes them with.
+    private static void AddSidecarActions(SaturnGame game, string? currentFolder, List<(string Target, string? Source, string? Text)> actions)
     {
         var values = new Dictionary<string, string?>
         {
@@ -205,7 +212,18 @@ public partial class Manager
         };
         for (int i = 0; i < Constants.FolderAltFiles.Length; i++)
             values[Constants.FolderAltFiles[i]] = i < game.AlternativeFolders.Count ? game.AlternativeFolders[i].Replace('\\', '/') : null;
-        foreach (var value in values) actions.Add((game.FolderNumberFormatted + "/" + value.Key, null, value.Value));
+        foreach (var value in values)
+        {
+            if (currentFolder != null && SidecarUnchanged(Path.Combine(currentFolder, value.Key), value.Value)) continue;
+            actions.Add((game.FolderNumberFormatted + "/" + value.Key, null, value.Value));
+        }
+    }
+
+    private static bool SidecarUnchanged(string path, string? text)
+    {
+        if (text == null) return !Path.Exists(path);
+        if (text.Length == 0 || !File.Exists(path)) return false;
+        return File.ReadAllBytes(path).AsSpan().SequenceEqual([.. Encoding.UTF8.GetPreamble(), .. Encoding.UTF8.GetBytes(text)]);
     }
 
     private async Task<(Dictionary<string, long> Files, bool Converted)> PrepareImportAsync(SaturnGame game, string destination, CardSaveTransaction tx, string tempRoot, IProgress<string>? progress)
@@ -222,6 +240,7 @@ public partial class Manager
             {
                 if (!File.Exists(game.SourcePath)) throw new FileNotFoundException("Archive file not found.", game.SourcePath);
                 extracted = Path.Combine(work!, "Extracted");
+                progress?.Report($"Extracting {Path.GetFileName(game.SourcePath)}...");
                 await Task.Run(() =>
                 {
                     if (game.SelectedArchiveEntry != null) ArchiveHelper.ExtractArchiveForEntry(game.SourcePath, extracted, game.SelectedArchiveEntry);
@@ -259,7 +278,12 @@ public partial class Manager
                 cue = converted.CuePath;
             }
             Dictionary<string, long> expected;
-            if (cue != null)
+            if (cue != null && ConversionFormat == DiscConversionFormat.Cdi)
+            {
+                expected = Cue2CdiConverter.ExpectedOutput(cue);
+                if (!await Cue2CdiConverter.ConvertAsync(cue, destination, progress)) throw new InvalidOperationException("CDI conversion failed for " + game.Name);
+            }
+            else if (cue != null)
             {
                 string name = Path.GetFileNameWithoutExtension(cue);
                 if (!await Cue2CcdConverter.ConvertAsync(cue, destination, progress)) throw new InvalidOperationException("CUE conversion failed for " + game.Name);
@@ -280,6 +304,7 @@ public partial class Manager
                     string? companion = ext == ".ccd" ? ".img" : ext == ".mds" ? ".mdf" : null;
                     if (companion != null && !expected.ContainsKey(Path.GetFileNameWithoutExtension(file) + companion)) throw new InvalidDataException("Missing source companion for " + file);
                 }
+                progress?.Report($"Copying {game.Name} to folder {game.FolderNumberFormatted}...");
                 foreach (string file in inputs) await Task.Run(() => File.Copy(file, Path.Combine(destination, Path.GetFileName(file)), false));
             }
             if (game.IsArchiveMetadataPending && extracted != null) ResolveDeferredArchiveMetadata(game, destination, extracted);

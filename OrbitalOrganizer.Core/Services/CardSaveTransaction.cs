@@ -965,11 +965,15 @@ internal sealed class CardSaveTransaction
             if (Path.Exists(At(WorkName)) || record.Phase is not (Phase.Preparing or Phase.Cleaning)) throw new InvalidDataException("Save workspace is missing.");
             return;
         }
-        foreach (string path in Directory.EnumerateFileSystemEntries(At(WorkName)))
+        var stages = new HashSet<string>(record.Items.Select(x => x.StageName), Names);
+        var artifacts = new HashSet<string>(record.Artifacts, Names);
+        foreach (var entry in new DirectoryInfo(At(WorkName)).EnumerateFileSystemInfos())
         {
-            string name = Path.GetFileName(path);
-            CheckPath(WorkName + "/" + name);
-            bool owned = record.Retiring.ContainsKey(WorkName + "/" + name) || record.Items.Any(x => Names.Equals(x.StageName, name)) || record.Artifacts.Contains(WorkName + "/" + name, Names) || record.WorkDirectories.ContainsKey(WorkName + "/" + name);
+            string path = entry.FullName;
+            string name = entry.Name;
+            if ((entry.Attributes & FileAttributes.ReparsePoint) != 0)
+                throw new InvalidDataException("Linked paths are not supported: " + path);
+            bool owned = record.Retiring.ContainsKey(WorkName + "/" + name) || stages.Contains(name) || artifacts.Contains(WorkName + "/" + name) || record.WorkDirectories.ContainsKey(WorkName + "/" + name);
             if (name == "Journal.next")
             {
                 Record next = ReadRecord(path);

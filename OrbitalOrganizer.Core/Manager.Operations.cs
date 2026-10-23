@@ -7,6 +7,7 @@ public partial class Manager
     private int _operationActive;
     private int _mutationThread;
     private bool _needsRecovery;
+    private SynchronizationContext? _uiContext;
     public bool IsOperationActive => Volatile.Read(ref _operationActive) != 0;
     public bool NeedsRecovery => _needsRecovery;
     public bool CanEdit => !IsOperationActive && !NeedsRecovery;
@@ -48,6 +49,20 @@ public partial class Manager
     }
 
     private Task RunOperationAsync(Func<Task> action) => RunOperationAsync(async () => { await action(); return true; });
+
+    // Card I/O runs on the thread pool. Anything bound to the UI must change through MutateOnUi.
+    private Task RunInBackground(Func<Task> action)
+    {
+        _uiContext = SynchronizationContext.Current;
+        return Task.Run(action);
+    }
+
+    private void MutateOnUi(Action action)
+    {
+        var ui = _uiContext;
+        if (ui == null) Mutate(action);
+        else ui.Send(_ => Mutate(action), null);
+    }
 
     private void NotifyOperationState()
     {

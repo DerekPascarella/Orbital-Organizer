@@ -30,6 +30,12 @@ public enum FileFormat
     Compressed
 }
 
+public enum DiscConversionFormat
+{
+    Ccd,
+    Cdi
+}
+
 /// <summary>
 /// The type of menu system on the SD card.
 /// </summary>

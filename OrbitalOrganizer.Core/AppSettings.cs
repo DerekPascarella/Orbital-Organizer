@@ -1,5 +1,6 @@
 using System.Runtime.InteropServices;
 using System.Text.Json;
+using OrbitalOrganizer.Core.Models;
 
 namespace OrbitalOrganizer.Core;
 
@@ -11,6 +12,7 @@ namespace OrbitalOrganizer.Core;
 public class AppSettings
 {
     public bool EnableLockCheck { get; set; } = true;
+    public DiscConversionFormat ConversionFormat { get; set; } = DiscConversionFormat.Ccd;
     public string TempFolder { get; set; } = "";
     public double WindowLeft { get; set; } = double.NaN;
     public double WindowTop { get; set; } = double.NaN;

@@ -218,7 +218,7 @@ Clicking **Save Changes** writes all pending changes to the SD card. This includ
 - Rebuilding the RMENU/RmenuKai menu ISO in folder `01`.
 - Generating `LIST.INI` for the RMENU/RmenuKai menu system.
 - Generating `GameList.txt` with a formatted table of all games on the card.
-- Writing or updating sidecar metadata files in each game folder.
+- Updating `GameDB.json` and the metadata files in each game folder.
 - Removing orphaned numbered folders that no longer correspond to any game in the list.
 
 The **File/Folder Lock Check** checkbox enables a pre-save scan that checks for files or folders locked by another process. If locked files are detected, a dialog is displayed listing them so they can be closed before proceeding.
